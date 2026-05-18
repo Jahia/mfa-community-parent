@@ -1,0 +1,151 @@
+# UPA - TOTP factor
+
+Third-party Jahia module adding a TOTP (RFC 6238 / Google Authenticator) factor to the
+[User Password Authentication (UPA)](https://github.com/Jahia/user-password-authentication)
+Multi-Factor Authentication framework. Once installed, end users can enroll an authenticator
+app, log in with a 6-digit time-based code, and fall back to one-shot backup codes.
+
+Compatible with Google Authenticator, Authy, 1Password, FreeOTP and any other RFC 6238
+compliant authenticator.
+
+## Requirements
+
+- Jahia 8.2.3+
+- `user-password-authentication-api` 0.3.0+ (the UPA module must be installed and started)
+- `graphql-dxm-provider` 3.4+
+- Java 11+
+
+## Installation
+
+1. Build (or download) the bundle JAR:
+   `user-password-authentication-mfa-totp-factor-<version>.jar`.
+2. Drop the JAR into Jahia's `digital-factory-data/modules/` directory, or upload it from
+   the Jahia administration UI (*Server settings* &rarr; *Modules*).
+3. Make sure the `user-password-authentication` module is started first; this module
+   declares it as a hard dependency (`jahia-depends`).
+
+## Configuration
+
+The module ships a single OSGi authorization configuration that grants the GraphQL types
+to all callers (the actual authentication / rate limiting happens at the resolver level):
+
+- `src/main/resources/META-INF/configurations/org.jahia.bundles.api.authorization-mfa-totp-factor.yml`
+
+There is no other OSGi/Karaf configuration to set. Tunable security constants
+(`DRIFT_WINDOWS`, `TIME_STEP_SECONDS`, `DIGITS`, PBKDF2 iterations, ...) live in
+`TotpService` and `BackupCodes`. To change them, fork and rebuild.
+
+## GraphQL API
+
+All mutations are exposed under `Mutation.upa.mfa.factors.totp`:
+
+| Mutation | Arguments | Returns |
+| --- | --- | --- |
+| `enroll` | `force: Boolean`, `currentCode: String` | `MfaTotpEnrollResult` (`secretBase32`, `otpauthUri`, `issuer`, `accountName`) |
+| `confirmEnroll` | `code: String!` | `MfaTotpConfirmEnrollResult` (`backupCodes: [String]`) |
+| `prepare` | &mdash; | `MfaTotpPreparation` |
+| `verify` | `code: String!` | `Result` |
+| `regenerateBackupCodes` | `code: String!` | `MfaTotpBackupCodesResult` (`backupCodes: [String]`) |
+| `disable` | `code: String!` | `Result` |
+
+Example &mdash; enroll an authenticated user:
+
+```graphql
+mutation {
+  upa {
+    mfa {
+      factors {
+        totp {
+          enroll {
+            secretBase32
+            otpauthUri
+            issuer
+            accountName
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Example &mdash; confirm enrollment with the first 6-digit code from the app:
+
+```graphql
+mutation {
+  upa { mfa { factors { totp {
+    confirmEnroll(code: "123456") { backupCodes }
+  } } } }
+}
+```
+
+`enroll(force: true)` is gated: a non-root user must supply `currentCode`, a currently
+valid TOTP for the existing secret, before the secret can be rotated.
+
+## User flow
+
+### Enrollment
+
+1. Authenticated user calls `enroll`. The server generates a fresh 160-bit secret and
+   returns it once, together with an `otpauth://` URI suitable for QR code rendering.
+2. The UI renders the QR code **client-side** (no server round-trip carries the secret
+   after this response). The user scans it with their authenticator app.
+3. The user types the 6-digit code shown in the app. The UI calls `confirmEnroll(code)`.
+4. The server verifies the code, persists the secret and a fresh set of hashed backup
+   codes, and returns the plaintext backup codes **once**.
+
+### Login
+
+1. After password authentication succeeds, UPA asks for an additional factor.
+2. The UI calls `prepare`, then `verify(code)` with the current TOTP code &mdash; or a
+   backup code if the user has lost their device.
+3. UPA's rate limiting and lockout apply on `verify`.
+
+## Security properties
+
+- HMAC-SHA1, 30-second step, 6 digits (RFC 6238).
+- Verification accepts the current window and &plusmn;1 step (clock drift tolerance).
+- Replay protection: the matched counter is persisted in JCR; a code cannot be reused,
+  even within its own validity window.
+- Backup codes: 10 single-use codes, generated with `SecureRandom`, shown once, stored as
+  PBKDF2-HMAC-SHA256 hashes (120 000 iterations, per-code salt).
+- All code comparisons use constant-time helpers (`MessageDigest.isEqual` /
+  `TotpService.constantTimeEquals`).
+- Secrets are generated with `SecureRandom`, never re-disclosed after `confirmEnroll`,
+  and never logged.
+
+## Backup codes
+
+`confirmEnroll` and `regenerateBackupCodes` return ten one-shot codes. They are the only
+recovery path if the user loses their authenticator device. The user must store them
+securely; the server keeps only PBKDF2 hashes and cannot recover them.
+
+## Building
+
+```bash
+mvn clean install
+```
+
+Requires the `user-password-authentication-api` artifact in the local Maven repo (build
+the parent UPA project first, or rely on the Jahia public Nexus snapshot).
+
+## Running the tests
+
+Unit tests:
+
+```bash
+mvn test
+```
+
+End-to-end Cypress tests:
+
+```bash
+cd tests
+./ci.build.sh
+./ci.startup.sh
+docker cp "cypress:/home/jahians/results" .
+```
+
+## License
+
+Apache License 2.0 &mdash; see [LICENSE](LICENSE).
