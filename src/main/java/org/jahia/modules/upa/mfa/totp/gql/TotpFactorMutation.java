@@ -397,7 +397,12 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INTERNAL);
         }
         rateLimiter.recordSuccess(userId);
+        // In self-service flows there is no MFA session; fall back to the no-session marker so
+        // clients selecting session.* fields don't NPE on a null mfaSession.
         MfaSession session = mfaService.getMfaSession(request);
+        if (session == null) {
+            session = mfaService.createNoSessionError();
+        }
         logger.info("TOTP disabled for user {}", userId);
         return new Result(session);
     }
