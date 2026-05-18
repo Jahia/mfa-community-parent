@@ -1,0 +1,18 @@
+mutation initiate($username: String!, $password: String!, $site: String) {
+    upa {
+        mfaInitiate(username: $username, password: $password, site: $site) {
+            session {
+                initiated
+                error {
+                    code
+                    arguments {
+                        name
+                        value
+                    }
+                }
+                requiredFactors
+                verifiedFactors
+            }
+        }
+    }
+}

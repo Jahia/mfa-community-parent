@@ -1,0 +1,10 @@
+---
+mfa:
+  grants:
+  - api: "graphql.MfaTotpFactorMutation"
+  - api: "graphql.MfaTotpPreparation"
+  - api: "graphql.MfaTotpEnrollResult"
+  - api: "graphql.MfaTotpConfirmEnrollResult"
+  - api: "graphql.MfaTotpBackupCodesResult"
+  auto_apply:
+  - always: "true"

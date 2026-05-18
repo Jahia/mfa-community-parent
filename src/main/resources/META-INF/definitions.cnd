@@ -1,0 +1,9 @@
+<jnt = 'http://www.jahia.org/jahia/nt/1.0'>
+<jmix = 'http://www.jahia.org/jahia/mix/1.0'>
+<upaTotp = 'http://www.jahia.org/jahia/user-password-authentication/totp/nt/1.0'>
+
+[upaTotp:userSettings] mixin
+ - upaTotp:secret (string) protected
+ - upaTotp:enrolled (boolean) = false autocreated
+ - upaTotp:lastUsedCounter (long) = '0' autocreated protected
+ - upaTotp:backupCodes (string) protected multiple

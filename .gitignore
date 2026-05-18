@@ -1,0 +1,25 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Build output
+target/
+*.class
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test workspace
+tests/node_modules/
+tests/artifacts/
+tests/results/
+tests/package-lock.json
+
+# Secrets - keep .env.example
+.env
+!.env.example

@@ -1,0 +1,55 @@
+services:
+    jahia:
+        image: '${JAHIA_IMAGE}'
+        container_name: jahia
+        depends_on:
+            - smtp-server
+        ports:
+            - '8080:8080'
+            - '8000:8000'
+        environment:
+            - SUPER_USER_PASSWORD=${SUPER_USER_PASSWORD}
+            - JAHIA_LICENSE=${JAHIA_LICENSE}
+            - SMTP_SERVER_URL=smtp://smtp-server:1025
+            - JPDA=true
+        volumes:
+            # Auto-deploy: any bundle dropped here is installed on boot.
+            - ./artifacts/jars:/var/jahia/modules:ro
+        extra_hosts:
+            - jahia:127.0.0.1
+        networks:
+            - stack
+
+    cypress:
+        image: '${TESTS_IMAGE}'
+        # https://github.com/cypress-io/cypress/issues/350
+        ipc: host
+        container_name: cypress
+        depends_on:
+            - jahia
+            - smtp-server
+        working_dir: /home/jahians
+        entrypoint: [""]
+        environment:
+            - SUPER_USER_PASSWORD=${SUPER_USER_PASSWORD}
+            - JAHIA_URL=http://jahia:8080
+            - CYPRESS_baseUrl=http://jahia:8080
+            - MAILPIT_URL=http://smtp-server:8025
+        volumes:
+            # Mount the entire tests directory so cypress can run the specs and
+            # write results back. /home/jahians/results is the documented output dir.
+            - ./:/home/jahians
+        networks:
+            - stack
+
+    smtp-server:
+        image: axllent/mailpit:v1.27
+        container_name: smtp-server
+        ports:
+            - '1025:1025'
+            - '8025:8025'
+        networks:
+            - stack
+
+networks:
+    stack:
