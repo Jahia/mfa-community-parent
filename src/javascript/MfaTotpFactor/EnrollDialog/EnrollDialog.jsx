@@ -1,23 +1,12 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import PropTypes from 'prop-types';
 import {useTranslation} from 'react-i18next';
 import {Button, Input, Typography, Modal, ModalHeader, ModalBody, ModalFooter} from '@jahia/moonstone';
-import QRCode from 'qrcode';
+import {QRCodeCanvas} from 'qrcode.react';
 
 const EnrollDialog = ({isOpen, enrollData, isLoading, errorKey, onCancel, onConfirm}) => {
     const {t} = useTranslation('mfa-totp-factor');
-    const canvasRef = useRef(null);
     const [code, setCode] = useState('');
-
-    useEffect(() => {
-        if (isOpen && enrollData && canvasRef.current) {
-            QRCode.toCanvas(canvasRef.current, enrollData.otpauthUri, {width: 224}, err => {
-                if (err) {
-                    console.error('QR render failed', err);
-                }
-            });
-        }
-    }, [isOpen, enrollData]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -35,8 +24,8 @@ const EnrollDialog = ({isOpen, enrollData, isLoading, errorKey, onCancel, onConf
                 <ModalHeader title={t('enrollDialog.title')}/>
                 <ModalBody>
                     <Typography>{t('enrollDialog.step1')}</Typography>
-                    <div style={{textAlign: 'center', margin: '16px 0'}}>
-                        <canvas ref={canvasRef} data-testid="enroll-qr"/>
+                    <div style={{textAlign: 'center', margin: '16px 0'}} data-testid="enroll-qr">
+                        <QRCodeCanvas value={enrollData.otpauthUri} size={224} level="M"/>
                     </div>
                     <Typography variant="caption"
                                 data-testid="enroll-secret"
