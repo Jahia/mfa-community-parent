@@ -7,6 +7,12 @@
 target/
 *.class
 
+# Frontend build output
+/node_modules
+/node
+/src/main/resources/javascript/apps
+yarn-error.log
+
 # OS
 .DS_Store
 Thumbs.db

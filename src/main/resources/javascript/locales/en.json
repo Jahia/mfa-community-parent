@@ -1,0 +1,42 @@
+{
+  "title": "Two-factor authentication (TOTP)",
+  "status": "Status:",
+  "enabled": "Enabled",
+  "disabled": "Disabled",
+  "loading": "Loading…",
+  "enable": "Enable two-factor authentication",
+  "disable": "Disable",
+  "regenerateBackupCodes": "Regenerate backup codes",
+  "regenerate": "Regenerate",
+  "confirm": "Confirm",
+  "cancel": "Cancel",
+  "descriptionEnabled": "Two-factor authentication is active on your account. You have {{count}} unused backup code(s).",
+  "descriptionDisabled": "Two-factor authentication adds an extra verification step at sign-in using a code from an authenticator app (e.g. Google Authenticator, 1Password).",
+  "enrollDialog": {
+    "title": "Enable two-factor authentication",
+    "step1": "Scan this QR code with your authenticator app (or paste the secret manually).",
+    "step2": "Then enter the 6-digit code your app is currently showing:"
+  },
+  "disableDialog": {
+    "title": "Disable two-factor authentication",
+    "description": "Enter your current 6-digit code to confirm disabling."
+  },
+  "regenDialog": {
+    "title": "Regenerate backup codes",
+    "description": "Enter your current 6-digit code to generate a new set. Previous backup codes will stop working."
+  },
+  "backupCodesDialog": {
+    "title": "Your backup codes",
+    "warning": "Save these codes somewhere safe. Each can be used only once and they will not be shown again.",
+    "copy": "Copy",
+    "download": "Download",
+    "close": "I have saved them"
+  },
+  "errors": {
+    "invalidCode": "Invalid code. Double-check the digits and try again.",
+    "lockedOut": "Too many failed attempts. Try again later.",
+    "alreadyEnrolled": "Two-factor authentication is already enabled.",
+    "notEnrolled": "Two-factor authentication is not enabled.",
+    "generic": "Something went wrong. Please try again."
+  }
+}
