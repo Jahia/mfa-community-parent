@@ -7,3 +7,7 @@
  - upaTotp:enrolled (boolean) = false autocreated
  - upaTotp:lastUsedCounter (long) = '0' autocreated protected
  - upaTotp:backupCodes (string) protected multiple
+
+[upaTotp:siteSettings] mixin
+ - upaTotp:enabled (boolean) = false autocreated
+ - upaTotp:enforced (boolean) = false autocreated

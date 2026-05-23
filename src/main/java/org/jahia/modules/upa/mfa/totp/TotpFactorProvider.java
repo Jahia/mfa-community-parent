@@ -37,12 +37,14 @@ public class TotpFactorProvider implements MfaFactorProvider {
     public static final String FACTOR_TYPE = "totp";
 
     public static final String ERROR_NOT_ENROLLED = "factor.totp.not_enrolled";
+    public static final String ERROR_ENROLLMENT_REQUIRED = "factor.totp.enrollment_required";
     public static final String ERROR_VERIFICATION_CODE_REQUIRED = "factor.totp.verification_code_required";
     public static final String ERROR_INTERNAL = "factor.totp.internal_error";
 
     private TotpService totpService;
     private TotpUserStore userStore;
     private BackupCodes backupCodes;
+    private TotpSiteSettingsStore siteSettingsStore;
 
     @Reference
     public void setTotpService(TotpService totpService) { this.totpService = totpService; }
@@ -53,6 +55,9 @@ public class TotpFactorProvider implements MfaFactorProvider {
     @Reference
     public void setBackupCodes(BackupCodes backupCodes) { this.backupCodes = backupCodes; }
 
+    @Reference
+    public void setSiteSettingsStore(TotpSiteSettingsStore siteSettingsStore) { this.siteSettingsStore = siteSettingsStore; }
+
     @Override
     public String getFactorType() {
         return FACTOR_TYPE;
@@ -61,23 +66,55 @@ public class TotpFactorProvider implements MfaFactorProvider {
     @Override
     public Serializable prepare(PreparationContext preparationContext) throws MfaException {
         String userId = preparationContext.getSessionContext().getUserId();
+        String siteKey = preparationContext.getSessionContext().getSiteKey();
+
+        TotpSiteSettingsStore.TotpSiteSettings siteSettings;
+        try {
+            siteSettings = siteSettingsStore.load(siteKey);
+        } catch (RepositoryException e) {
+            logger.warn("Failed to load TOTP site settings for {}: {}", siteKey, e.getMessage());
+            throw new MfaException(ERROR_INTERNAL);
+        }
+
+        // If the site has TOTP disabled, treat the factor as skipped — verify() will
+        // accept any submission. The login UI is expected to bypass the TOTP step
+        // entirely in that case (it can read the site settings via GraphQL upfront).
+        if (!siteSettings.isEnabled()) {
+            logger.debug("TOTP skipped for user {} (site '{}' has TOTP disabled)", userId, siteKey);
+            return new TotpPreparationResult(true);
+        }
+
         boolean enrolled;
         try {
-            // Lightweight enrollment check: does NOT load the Base32 secret into the heap.
             enrolled = userStore.isEnrolled(userId);
         } catch (RepositoryException e) {
-            logger.warn("Failed to load TOTP settings for user {}: {}", userId, e.getMessage());
+            logger.warn("Failed to load TOTP user settings for {}: {}", userId, e.getMessage());
             throw new MfaException(ERROR_INTERNAL);
         }
         if (!enrolled) {
-            throw new MfaException(ERROR_NOT_ENROLLED, "user", userId);
+            // Not enrolled. Two cases:
+            //   - enforced=true  → block the login; UI redirects to enrollment.
+            //   - enforced=false → skip the factor; user gets in without TOTP.
+            if (siteSettings.isEnforced()) {
+                throw new MfaException(ERROR_ENROLLMENT_REQUIRED, "user", userId);
+            }
+            logger.debug("TOTP skipped for user {} (not enrolled, site '{}' not enforcing)", userId, siteKey);
+            return new TotpPreparationResult(true);
         }
-        // Do not load the secret into the result — verify() re-reads it from JCR.
+        // Enrolled. Standard flow: verify() will re-read the secret from JCR.
         return new TotpPreparationResult();
     }
 
     @Override
     public boolean verify(VerificationContext verificationContext) throws MfaException {
+        // If prepare() marked the factor as skipped (site has TOTP disabled, or user not
+        // enrolled and enforcement off), any submission is accepted — the factor is a
+        // no-op for this session.
+        Serializable prep = verificationContext.getPreparationResult();
+        if (prep instanceof TotpPreparationResult && ((TotpPreparationResult) prep).isSkipped()) {
+            return true;
+        }
+
         String userId = verificationContext.getSessionContext().getUserId();
         Serializable raw = verificationContext.getVerificationData();
         if (!(raw instanceof String)) {

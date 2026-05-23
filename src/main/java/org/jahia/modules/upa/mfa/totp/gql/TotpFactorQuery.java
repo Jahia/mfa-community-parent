@@ -3,8 +3,10 @@ package org.jahia.modules.upa.mfa.totp.gql;
 import graphql.annotations.annotationTypes.GraphQLDescription;
 import graphql.annotations.annotationTypes.GraphQLField;
 import graphql.annotations.annotationTypes.GraphQLName;
+import graphql.annotations.annotationTypes.GraphQLNonNull;
 import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
 import org.jahia.modules.graphql.provider.dxm.osgi.annotations.GraphQLOsgiService;
+import org.jahia.modules.upa.mfa.totp.TotpSiteSettingsStore;
 import org.jahia.modules.upa.mfa.totp.TotpUserStore;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.usermanager.JahiaUser;
@@ -26,11 +28,18 @@ public class TotpFactorQuery {
     private static final String ERROR_INTERNAL = "factor.totp.internal_error";
 
     private TotpUserStore userStore;
+    private TotpSiteSettingsStore siteSettingsStore;
 
     @Inject
     @GraphQLOsgiService
     public void setUserStore(TotpUserStore userStore) {
         this.userStore = userStore;
+    }
+
+    @Inject
+    @GraphQLOsgiService
+    public void setSiteSettingsStore(TotpSiteSettingsStore siteSettingsStore) {
+        this.siteSettingsStore = siteSettingsStore;
     }
 
     @GraphQLField
@@ -47,6 +56,19 @@ public class TotpFactorQuery {
             return new TotpStatusResult(settings.isEnrolled(), remaining);
         } catch (RepositoryException e) {
             logger.warn("Failed to load TOTP settings for user {}: {}", user.getName(), e.getMessage());
+            throw new DataFetchingException(ERROR_INTERNAL);
+        }
+    }
+
+    @GraphQLField
+    @GraphQLName("siteSettings")
+    @GraphQLDescription("Per-site TOTP settings (enabled / enforced). Public-read so the login UI can decide whether to render a TOTP step at all.")
+    public TotpSiteSettingsResult siteSettings(@GraphQLName("siteKey") @GraphQLNonNull String siteKey) {
+        try {
+            TotpSiteSettingsStore.TotpSiteSettings s = siteSettingsStore.load(siteKey);
+            return new TotpSiteSettingsResult(siteKey, s.isEnabled(), s.isEnforced());
+        } catch (RepositoryException e) {
+            logger.warn("Failed to load TOTP site settings for {}: {}", siteKey, e.getMessage());
             throw new DataFetchingException(ERROR_INTERNAL);
         }
     }

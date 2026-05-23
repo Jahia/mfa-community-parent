@@ -19,7 +19,7 @@ function extractSiteKeyFromUrl(): string | undefined {
 
 interface LoginFormProps {
   content: Props;
-  onSuccess: (username: string) => void;
+  onSuccess: (info: {username: string; remainingFactors: string[]}) => void;
   onAllFactorsCompleted: () => void;
   onFatalError: (error: MfaError) => void;
 }
@@ -45,7 +45,7 @@ export default function LoginForm(props: Readonly<LoginFormProps>) {
           if (result.remainingFactors.length === 0) {
             props.onAllFactorsCompleted();
           } else {
-            props.onSuccess(username);
+            props.onSuccess({username, remainingFactors: result.remainingFactors});
           }
           setError("");
         } else if (result?.fatalError) {

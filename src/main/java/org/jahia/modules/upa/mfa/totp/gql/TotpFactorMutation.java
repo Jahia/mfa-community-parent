@@ -16,8 +16,11 @@ import org.jahia.modules.upa.mfa.totp.BackupCodes;
 import org.jahia.modules.upa.mfa.totp.TotpEnrollmentState;
 import org.jahia.modules.upa.mfa.totp.TotpManagementRateLimiter;
 import org.jahia.modules.upa.mfa.totp.TotpService;
+import org.jahia.modules.upa.mfa.totp.TotpSiteSettingsStore;
 import org.jahia.modules.upa.mfa.totp.TotpUserStore;
+import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionFactory;
+import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.usermanager.JahiaUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +61,8 @@ public class TotpFactorMutation {
     private static final String ERROR_INTERNAL = "factor.totp.internal_error";
     private static final String ERROR_LOCKED_OUT = "factor.totp.locked_out";
     private static final String ERROR_FORCE_NOT_ALLOWED = "factor.totp.force_not_allowed";
+    private static final String ERROR_PERMISSION_DENIED = "factor.totp.permission_denied";
+    private static final String SITE_ADMIN_PERMISSION = "siteAdminAccess";
 
     /** HTTP session attribute used to persist self-service enrollment state when no MFA session exists. */
     private static final String SELF_SERVICE_STATE_ATTR = "upa.mfa.totp.selfService.enrollState";
@@ -67,6 +72,7 @@ public class TotpFactorMutation {
     private TotpUserStore userStore;
     private BackupCodes backupCodes;
     private TotpManagementRateLimiter rateLimiter;
+    private TotpSiteSettingsStore siteSettingsStore;
 
     @Inject
     @GraphQLOsgiService
@@ -96,6 +102,12 @@ public class TotpFactorMutation {
     @GraphQLOsgiService
     public void setRateLimiter(TotpManagementRateLimiter rateLimiter) {
         this.rateLimiter = rateLimiter;
+    }
+
+    @Inject
+    @GraphQLOsgiService
+    public void setSiteSettingsStore(TotpSiteSettingsStore siteSettingsStore) {
+        this.siteSettingsStore = siteSettingsStore;
     }
 
     @GraphQLField
@@ -456,6 +468,40 @@ public class TotpFactorMutation {
         } catch (RepositoryException e) {
             logger.warn("Failed to persist consumed counter for user {}: {}", userId, e.getMessage());
             return null;
+        }
+    }
+
+    @GraphQLField
+    @GraphQLName("setSiteSettings")
+    @GraphQLDescription("Set the per-site TOTP settings (enabled / enforced). Caller must be a site administrator on the target site.")
+    public TotpSiteSettingsResult setSiteSettings(
+            @GraphQLName("siteKey") @GraphQLNonNull String siteKey,
+            @GraphQLName("enabled") @GraphQLNonNull Boolean enabled,
+            @GraphQLName("enforced") @GraphQLNonNull Boolean enforced) {
+
+        if (StringUtils.isBlank(siteKey)) {
+            throw new DataFetchingException("siteKey must not be blank");
+        }
+        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        if (user == null) {
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        try {
+            // Use the caller's session — JCR ACLs will reject the write if the user
+            // lacks write access on the site node anyway. The hasPermission check
+            // above is a friendlier upfront gate.
+            JCRSessionWrapper session = JCRSessionFactory.getInstance().getCurrentUserSession();
+            JCRNodeWrapper siteNode = session.getNode("/sites/" + siteKey);
+            if (!user.isRoot() && !siteNode.hasPermission(SITE_ADMIN_PERMISSION)) {
+                logger.warn("User {} attempted setSiteSettings on {} without siteAdminAccess",
+                        user.getName(), siteKey);
+                throw new DataFetchingException(ERROR_PERMISSION_DENIED);
+            }
+            siteSettingsStore.save(session, siteKey, enabled, enforced);
+            return new TotpSiteSettingsResult(siteKey, enabled, enforced);
+        } catch (RepositoryException e) {
+            logger.warn("Failed to save TOTP site settings for {}: {}", siteKey, e.getMessage());
+            throw new DataFetchingException(ERROR_INTERNAL);
         }
     }
 

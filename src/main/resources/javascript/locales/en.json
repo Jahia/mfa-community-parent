@@ -38,5 +38,26 @@
     "alreadyEnrolled": "Two-factor authentication is already enabled.",
     "notEnrolled": "Two-factor authentication is not enabled.",
     "generic": "Something went wrong. Please try again."
+  },
+  "siteSettings": {
+    "menuLabel": "Two-factor authentication (TOTP)",
+    "title": "Two-factor authentication — {{siteKey}}",
+    "description": "Choose whether two-factor authentication (TOTP) is active on this site and whether all users must enrol.",
+    "noSite": "No site context available. Open this page from a site's administration panel.",
+    "save": "Save",
+    "saved": "Settings saved.",
+    "enabled": {
+      "label": "Enable TOTP MFA on this site",
+      "help": "When off, users of this site sign in without a second factor. When on, enrolled users are prompted for an authenticator code at login."
+    },
+    "enforced": {
+      "label": "Enforce enrollment",
+      "help": "When on, users who have not yet enrolled in TOTP are redirected to the enrollment page at login and cannot complete sign-in until they enrol."
+    },
+    "errors": {
+      "permissionDenied": "You don't have permission to change these settings.",
+      "notAuthenticated": "Please sign in again to change these settings.",
+      "generic": "Could not save the settings. Please try again."
+    }
   }
 }

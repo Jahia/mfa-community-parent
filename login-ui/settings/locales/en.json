@@ -18,5 +18,17 @@
   "factor.totp.not_authenticated": "Authentication required. Please sign in again.",
   "factor.totp.internal_error": "An internal error occurred. Please try again.",
   "factor.totp.useBackupCode": "Use a backup code instead",
-  "factor.totp.useAuthenticatorCode": "Use the authenticator app code instead"
+  "factor.totp.useAuthenticatorCode": "Use the authenticator app code instead",
+  "factor.totp.enrollment_required": "Two-factor authentication is required. Redirecting to enrollment…",
+  "factor.email_code.title": "Email verification",
+  "factor.email_code.verify": "Verify",
+  "factor.email_code.resend": "Send a new code",
+  "factor.email_code.verification_code_has_been_sent": "A verification code has been sent to <mark>{{maskedEmail}}</mark>.",
+  "factor.email_code.missing_prepared_code": "No verification code found. Please request a new code.",
+  "factor.email_code.preparation_failed": "Failed to prepare email factor for user: {{user}}",
+  "factor.email_code.email_not_configured_for_user": "User '{{user}}' does not have an email address configured.",
+  "factorChooser.title": "Choose a verification method",
+  "factorChooser.description": "Several methods are available. Pick the one you want to use to finish signing in.",
+  "factorChooser.totp": "Authenticator app (TOTP)",
+  "factorChooser.email_code": "Email code"
 }

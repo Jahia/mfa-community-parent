@@ -32,6 +32,10 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
       .then((result) => {
         if (result.success) {
           setError("");
+        } else if (result.error?.code === "factor.totp.enrollment_required") {
+          // Site enforces TOTP and the user hasn't enrolled — bounce them to the
+          // dashboard enrollment page. They'll come back here after enrolment.
+          window.location.assign(props.content.contextPath + "/jahia/dashboard/mfa-totp-factor");
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
