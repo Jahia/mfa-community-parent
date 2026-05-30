@@ -1,12 +1,22 @@
+# Unique Compose project name so this stack never collides with the sibling
+# Jahia test harnesses (user-password-authentication/tests, privateappstore/tests, ...)
+# which all otherwise default to the project name "tests" (their dir basename).
+# This prefixes the network and all auto-generated container names.
+name: mfa-totp-factor-tests
+
 services:
     jahia:
         image: '${JAHIA_IMAGE}'
-        container_name: jahia
+        # No fixed container_name: let Compose name it <project>-jahia-1 so bare
+        # `docker logs jahia` from another project can never hit this container.
         depends_on:
             - smtp-server
         ports:
-            - '8080:8080'
-            - '8000:8000'
+            # Host ports are parameterised (non-default) so this stack can run
+            # CONCURRENTLY with another project's stack still bound to 8080/8000/etc.
+            # The container-internal ports stay 8080/8000 — internal DNS is unaffected.
+            - '${JAHIA_HTTP_PORT:-8090}:8080'
+            - '${JAHIA_DEBUG_PORT:-8001}:8000'
         environment:
             - SUPER_USER_PASSWORD=${SUPER_USER_PASSWORD}
             - JAHIA_LICENSE=${JAHIA_LICENSE}
@@ -24,7 +34,6 @@ services:
         image: '${TESTS_IMAGE}'
         # https://github.com/cypress-io/cypress/issues/350
         ipc: host
-        container_name: cypress
         depends_on:
             - jahia
             - smtp-server
@@ -32,22 +41,23 @@ services:
         entrypoint: [""]
         environment:
             - SUPER_USER_PASSWORD=${SUPER_USER_PASSWORD}
+            # Internal network DNS: the service name 'jahia' resolves on the
+            # project network regardless of host port remapping above.
             - JAHIA_URL=http://jahia:8080
             - CYPRESS_baseUrl=http://jahia:8080
             - MAILPIT_URL=http://smtp-server:8025
         volumes:
             # Mount the entire tests directory so cypress can run the specs and
-            # write results back. /home/jahians/results is the documented output dir.
+            # write results straight to ./results on the host (no docker cp needed).
             - ./:/home/jahians
         networks:
             - stack
 
     smtp-server:
         image: axllent/mailpit:v1.27
-        container_name: smtp-server
         ports:
-            - '1025:1025'
-            - '8025:8025'
+            - '${MAILPIT_SMTP_PORT:-1035}:1025'
+            - '${MAILPIT_UI_PORT:-8035}:8025'
         networks:
             - stack
 

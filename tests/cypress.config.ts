@@ -42,10 +42,13 @@ export default defineConfig({
             return require('./cypress/plugins/index.js')(on, config);
         },
         excludeSpecPattern: '*.ignore.ts',
-        baseUrl: process.env.CYPRESS_baseUrl || 'http://localhost:8080'
+        // In CI the cypress container is given CYPRESS_baseUrl=http://jahia:8080 (internal
+        // network DNS). The host-side fallback honours the remapped host port (default 8090)
+        // so a local `cypress open` against this isolated stack hits the right port.
+        baseUrl: process.env.CYPRESS_baseUrl || `http://localhost:${process.env.JAHIA_HTTP_PORT || '8090'}`
     },
     env: {
-        MAILPIT_URL: process.env.MAILPIT_URL || 'http://localhost:8025',
+        MAILPIT_URL: process.env.MAILPIT_URL || `http://localhost:${process.env.MAILPIT_UI_PORT || '8035'}`,
         SUPER_USER_PASSWORD: process.env.SUPER_USER_PASSWORD || 'root1234'
     }
 });
