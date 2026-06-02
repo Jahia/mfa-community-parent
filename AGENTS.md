@@ -5,11 +5,19 @@ Keep edits minimal and consistent with the conventions below.
 
 ## Project type
 
-Third-party Jahia 8.2 OSGi bundle. It implements the `MfaFactorProvider` SPI exposed by
-the [User Password Authentication (UPA)](https://github.com/Jahia/user-password-authentication)
-module and contributes a TOTP factor to UPA's MFA pipeline. It is not part of the UPA
-repo and is published under groupId `org.jahia.community` (required by Jahia EE's license
-check &mdash; do not change it).
+Third-party Jahia 8.2 **multi-module Maven project** (root `pom.xml` is a `packaging=pom`
+aggregator, mirroring UPA's layout). It has two modules:
+
+- **`factor/`** &mdash; the OSGi bundle (`packaging=bundle`, artifactId `mfa-totp-factor`).
+  Implements the `MfaFactorProvider` SPI exposed by the
+  [User Password Authentication (UPA)](https://github.com/Jahia/user-password-authentication)
+  module, contributes a TOTP factor to UPA's MFA pipeline, and bundles the self-service
+  dashboard + per-site admin React UIs (webpack/Module Federation).
+- **`login-ui/`** &mdash; a Jahia JS-SDK module (`packaging=pom`, produces a `.tgz` via Vite)
+  providing the sign-in template (`totpui:authentication`) with a factor chooser.
+
+Published under groupId `org.jahia.community` (required by Jahia EE's license check
+&mdash; do not change it).
 
 The functional spec lives **outside this repository** at
 `../SPEC-TOTP.md` (i.e. `SUPPORT/SUPPORT-591/SPEC-TOTP.md`). Keep the implementation in
@@ -18,35 +26,43 @@ sync with that document; do not duplicate its contents inside the module.
 ## Repo layout
 
 ```
-src/main/java/org/jahia/modules/upa/mfa/totp/
-  TotpService.java                 RFC 6238 primitive: HOTP/TOTP generation + verification, Base32, otpauth:// URI.
-  TotpFactorProvider.java          UPA MfaFactorProvider SPI implementation (verify entry point used at login).
-  TotpUserStore.java               JCR-backed persistence of per-user settings (secret, hashed backup codes, lastUsedCounter).
-  TotpEnrollmentState.java         Transient (in-session) secret + TTL while the user is enrolling.
-  TotpPreparationResult.java       MFA "preparation" DTO.
-  TotpManagementRateLimiter.java   In-memory throttle for management mutations (enroll/confirm/regen/disable).
-  BackupCodes.java                 Generates, PBKDF2-hashes, and constant-time-verifies backup codes.
-  gql/
-    TotpFactorMutation.java        GraphQL mutations: enroll/confirmEnroll/prepare/verify/regenerateBackupCodes/disable.
-    TotpFactorMutationExtension.java  @GraphQLTypeExtension that grafts `totp` onto UPA's FactorsMutation.
-    TotpEnrollResult / TotpConfirmEnrollResult / TotpBackupCodesResult / TotpPreparation
-    ExtensionsAutoDiscovery.java   Registers the @GraphQLTypeExtension with graphql-dxm-provider.
-src/main/resources/META-INF/
-  definitions.cnd                            JCR node type for the per-user settings node.
-  configurations/org.jahia.bundles.api.authorization-mfa-totp-factor.yml  Grants GraphQL types.
-src/test/java/...                            JUnit 4 tests.
-tests/                                       Cypress / docker-compose E2E harness (mirrors UPA's tests/ structure).
-pom.xml                                      Maven bundle build.
+pom.xml                            Root aggregator (packaging=pom): <modules>factor, login-ui</modules>.
+factor/                            OSGi bundle module (artifactId mfa-totp-factor).
+  pom.xml
+  src/main/java/org/jahia/modules/upa/mfa/totp/
+    TotpService.java                 RFC 6238 primitive: HOTP/TOTP generation + verification, Base32, otpauth:// URI.
+    TotpFactorProvider.java          UPA MfaFactorProvider SPI impl (verify at login; consults per-site settings).
+    TotpUserStore.java               JCR persistence of per-user settings (secret, hashed backup codes, lastUsedCounter).
+    TotpSiteSettingsStore.java       JCR persistence of per-site settings (enabled / enforced) on the site node.
+    TotpEnrollmentState.java         Transient (in-session) secret + TTL while the user is enrolling.
+    TotpPreparationResult.java       MFA "preparation" DTO (carries the per-session "skipped" flag).
+    TotpManagementRateLimiter.java   In-memory throttle for management mutations.
+    BackupCodes.java                 Generates, PBKDF2-hashes, and constant-time-verifies backup codes.
+    gql/
+      TotpFactorMutation.java        Mutations: enroll/confirmEnroll/prepare/verify/regenerateBackupCodes/disable/setSiteSettings.
+      TotpFactorQuery.java           Queries: status (per-user) + siteSettings (per-site).
+      TotpFactorMutationExtension / TotpFactorQueryExtension   @GraphQLTypeExtension graft points.
+      ExtensionsAutoDiscovery.java   Registers the extensions with graphql-dxm-provider.
+      Totp*Result.java               Result DTOs.
+  src/main/javascript/               Dashboard (self-service) + per-site admin React (webpack/Module Federation).
+  src/main/resources/META-INF/
+    definitions.cnd                  JCR node types: upaTotp:userSettings (per-user) + upaTotp:siteSettings (per-site).
+    configurations/...authorization-mfa-totp-factor.yml  Grants GraphQL types.
+  src/test/java/...                  JUnit 4 tests.
+login-ui/                          JS-SDK module (Vite → .tgz): totpui:authentication sign-in template + factor chooser.
+tests/                             Cypress / docker-compose E2E harness (isolated Compose project; mirrors UPA's tests/).
 ```
 
 ## Build
 
 ```bash
-mvn clean install
+mvn clean install        # at the repo root: builds BOTH modules (factor JAR + login-ui .tgz)
 ```
 
-Requires `user-password-authentication-api` (UPA's `api` module) in the local Maven repo
-or in Jahia's public Nexus. UPA must be built first when working from a snapshot.
+The root reactor builds `factor` then `login-ui`. Build a single module with
+`mvn -pl factor` (or `-pl login-ui`), optionally `-am`. Requires
+`user-password-authentication-api` (UPA's `api` module) in the local Maven repo or Jahia's
+public Nexus; UPA must be built first when working from a snapshot.
 
 ## Tests
 
@@ -95,7 +111,7 @@ in the same file and grant them in `org.jahia.bundles.api.authorization-mfa-totp
 
 To re-run a security review pass, prompt a fresh agent with something like:
 
-> Review every file under `src/main/java/org/jahia/modules/upa/mfa/totp/` for: replay,
+> Review every file under `factor/src/main/java/org/jahia/modules/upa/mfa/totp/` for: replay,
 > timing-attack, brute force, secret disclosure, JCR transaction races, logging of
 > secrets/codes, and OWASP ASVS controls relevant to MFA. Cross-check against
 > `../SECURITY-REVIEW.md`. Output findings as severity/title/file/lines/fix.

@@ -23,7 +23,7 @@ rm -f "${ARTIFACTS_DIR}"/*.jar "${ARTIFACTS_DIR}"/*.tgz
 UPA_API_DIR="../../user-password-authentication/api/target"
 UPA_UI_DIR="../../user-password-authentication/ui/target"
 UPA_TEMPLATE_SET_DIR="../../user-password-authentication/test-modules/template-set/target"
-TOTP_TARGET_DIR="../target"
+TOTP_TARGET_DIR="../factor/target"
 TOTP_LOGIN_UI_DIR="../login-ui/target"
 
 echo "== Staging UPA api JAR =="

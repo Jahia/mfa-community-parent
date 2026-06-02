@@ -17,10 +17,14 @@ compliant authenticator.
 
 ## Installation
 
-1. Build (or download) the bundle JAR:
-   `user-password-authentication-mfa-totp-factor-<version>.jar`.
-2. Drop the JAR into Jahia's `digital-factory-data/modules/` directory, or upload it from
-   the Jahia administration UI (*Server settings* &rarr; *Modules*).
+1. Build the project (`mvn clean install` at the repo root builds both modules):
+   - `factor/target/mfa-totp-factor-<version>.jar` &mdash; the OSGi factor bundle.
+   - `login-ui/target/mfa-totp-factor-login-ui-<version>.tgz` &mdash; the sign-in UI (optional;
+     install only if you want the bundled login template). The `.tgz` is an npm/JS-SDK
+     package and must be installed via the Jahia provisioning API or the Modules UI &mdash;
+     it is **not** picked up by the `digital-factory-data/modules/` hot-deploy folder.
+2. Drop the bundle JAR into Jahia's `digital-factory-data/modules/` directory, or upload it
+   from the Jahia administration UI (*Server settings* &rarr; *Modules*).
 3. Make sure the `user-password-authentication` module is started first; this module
    declares it as a hard dependency (`jahia-depends`).
 
@@ -29,7 +33,7 @@ compliant authenticator.
 The module ships a single OSGi authorization configuration that grants the GraphQL types
 to all callers (the actual authentication / rate limiting happens at the resolver level):
 
-- `src/main/resources/META-INF/configurations/org.jahia.bundles.api.authorization-mfa-totp-factor.yml`
+- `factor/src/main/resources/META-INF/configurations/org.jahia.bundles.api.authorization-mfa-totp-factor.yml`
 
 There is no other OSGi/Karaf configuration to set. Tunable security constants
 (`DRIFT_WINDOWS`, `TIME_STEP_SECONDS`, `DIGITS`, PBKDF2 iterations, ...) live in

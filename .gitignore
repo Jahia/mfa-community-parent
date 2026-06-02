@@ -7,10 +7,10 @@
 target/
 *.class
 
-# Frontend build output
-/node_modules
-/node
-/src/main/resources/javascript/apps
+# Frontend build output (factor module: Java bundle + dashboard React)
+factor/node_modules/
+factor/node/
+factor/src/main/resources/javascript/apps
 yarn-error.log
 
 # login-ui (JS-SDK sub-module)
