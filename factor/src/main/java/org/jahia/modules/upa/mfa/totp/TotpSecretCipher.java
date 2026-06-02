@@ -23,6 +23,7 @@ import java.util.Base64;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Encrypts the TOTP shared secret at rest with AES-GCM.
@@ -57,12 +58,12 @@ public class TotpSecretCipher {
     private static final int GCM_TAG_BITS = 128;
 
     private final SecureRandom secureRandom = new SecureRandom();
-    private volatile SecretKey key;
+    private final AtomicReference<SecretKey> key = new AtomicReference<>();
 
     @Activate
     @Modified
     public void activate(Map<String, Object> properties) {
-        this.key = resolveKey(properties);
+        this.key.set(resolveKey(properties));
     }
 
     /**
@@ -76,7 +77,7 @@ public class TotpSecretCipher {
             byte[] iv = new byte[GCM_IV_BYTES];
             secureRandom.nextBytes(iv);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.init(Cipher.ENCRYPT_MODE, key.get(), new GCMParameterSpec(GCM_TAG_BITS, iv));
             byte[] ciphertext = cipher.doFinal(plaintextBase32.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             Base64.Encoder enc = Base64.getEncoder();
             return PREFIX_V1 + enc.encodeToString(iv) + ":" + enc.encodeToString(ciphertext);
@@ -106,7 +107,7 @@ public class TotpSecretCipher {
             byte[] iv = dec.decode(parts[1]);
             byte[] ciphertext = dec.decode(parts[2]);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.init(Cipher.DECRYPT_MODE, key.get(), new GCMParameterSpec(GCM_TAG_BITS, iv));
             byte[] plain = cipher.doFinal(ciphertext);
             return new String(plain, java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {

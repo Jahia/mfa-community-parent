@@ -92,17 +92,23 @@ public class TotpSiteSettingsStore {
                     && siteNode.getProperty(PROP_ENFORCED).getBoolean();
             long graceDays = siteNode.hasProperty(PROP_GRACE_DAYS)
                     ? siteNode.getProperty(PROP_GRACE_DAYS).getLong() : 0L;
-            List<String> groups = new ArrayList<>();
-            if (siteNode.hasProperty(PROP_ENABLED_GROUPS)) {
-                for (Value v : siteNode.getProperty(PROP_ENABLED_GROUPS).getValues()) {
-                    String g = v.getString();
-                    if (g != null && !g.trim().isEmpty()) {
-                        groups.add(g.trim());
-                    }
-                }
-            }
-            return new TotpSiteSettings(enabled, enforced, graceDays, groups);
+            return new TotpSiteSettings(enabled, enforced, graceDays, readGroups(siteNode));
         });
+    }
+
+    /** Read the non-blank, trimmed group names from the multi-valued enabledGroups property. */
+    private static List<String> readGroups(JCRNodeWrapper siteNode) throws RepositoryException {
+        List<String> groups = new ArrayList<>();
+        if (!siteNode.hasProperty(PROP_ENABLED_GROUPS)) {
+            return groups;
+        }
+        for (Value v : siteNode.getProperty(PROP_ENABLED_GROUPS).getValues()) {
+            String g = v.getString();
+            if (g != null && !g.trim().isEmpty()) {
+                groups.add(g.trim());
+            }
+        }
+        return groups;
     }
 
     /**

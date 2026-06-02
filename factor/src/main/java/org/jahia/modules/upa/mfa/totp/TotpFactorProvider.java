@@ -131,7 +131,7 @@ public class TotpFactorProvider implements MfaFactorProvider {
         }
         long graceDays = siteSettings.getGraceDays();
         if (graceDays <= 0) {
-            auditLog.record("enrollmentRequired", "denied", userId, siteKey, "noGrace");
+            auditLog.recordEvent("enrollmentRequired", "denied", userId, siteKey, "noGrace");
             throw new MfaException(ERROR_ENROLLMENT_REQUIRED, "user", userId);
         }
         long now = System.currentTimeMillis();
@@ -148,7 +148,7 @@ public class TotpFactorProvider implements MfaFactorProvider {
                     userId, graceStart, graceDays);
             return new TotpPreparationResult(true);
         }
-        auditLog.record("enrollmentRequired", "denied", userId, siteKey, "graceExpired");
+        auditLog.recordEvent("enrollmentRequired", "denied", userId, siteKey, "graceExpired");
         throw new MfaException(ERROR_ENROLLMENT_REQUIRED, "user", userId);
     }
 
@@ -208,14 +208,14 @@ public class TotpFactorProvider implements MfaFactorProvider {
         boolean backupCode = BackupCodes.looksLikeBackupCode(submitted);
         boolean ok = backupCode
                 ? verifyBackupCode(userId, settings.getBackupCodeHashes(), submitted)
-                : verifyTotpCode(userId, settings, submitted);
+                : verifyTotpCode(userId, submitted);
         String siteKey = verificationContext.getSessionContext().getSiteKey();
-        auditLog.record("verify", ok ? "success" : "failure", userId, siteKey,
+        auditLog.recordEvent("verify", ok ? "success" : "failure", userId, siteKey,
                 backupCode ? "backupCode" : "totp");
         return ok;
     }
 
-    private boolean verifyTotpCode(String userId, TotpUserStore.TotpUserSettings settings, String submitted) {
+    private boolean verifyTotpCode(String userId, String submitted) {
         // Go through the centralized verify-and-consume chokepoint so the matched counter is
         // persisted atomically in the SAME JCR transaction that reads lastUsedCounter — this
         // is what guarantees replay protection at login. Do NOT call verifyCode directly here.

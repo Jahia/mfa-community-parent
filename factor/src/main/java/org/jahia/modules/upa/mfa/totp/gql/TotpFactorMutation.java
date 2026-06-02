@@ -61,6 +61,7 @@ public class TotpFactorMutation {
     private static final String ERROR_INTERNAL = "factor.totp.internal_error";
     private static final String ERROR_LOCKED_OUT = "factor.totp.locked_out";
     private static final String ERROR_FORCE_NOT_ALLOWED = "factor.totp.force_not_allowed";
+    private static final String OUTCOME_SUCCESS = "success";
 
     /** HTTP session attribute used to persist self-service enrollment state when no MFA session exists. */
     private static final String SELF_SERVICE_STATE_ATTR = "upa.mfa.totp.selfService.enrollState";
@@ -143,7 +144,7 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INTERNAL);
         }
         if (settings.isEnrolled()) {
-            authorizeReEnroll(user, userId, settings, forceFlag, currentCode);
+            authorizeReEnroll(user, userId, forceFlag, currentCode);
         }
 
         MfaSession storedSession = mfaService.getMfaSession(request);
@@ -293,7 +294,7 @@ public class TotpFactorMutation {
         rateLimiter.recordSuccess(userId);
 
         MfaSession responseSession = (session != null) ? session : mfaService.createNoSessionError();
-        auditLog.record("confirmEnroll", "success", userId, auditSiteKey(responseSession), null);
+        auditLog.recordEvent("confirmEnroll", OUTCOME_SUCCESS, userId, auditSiteKey(responseSession), null);
         logger.info("TOTP enrollment confirmed for user {}", userId);
         return new TotpConfirmEnrollResult(responseSession, plaintextBackup);
     }
@@ -354,7 +355,7 @@ public class TotpFactorMutation {
         if (!settings.isEnrolled()) {
             throw new DataFetchingException(ERROR_NOT_ENROLLED);
         }
-        Long matched = verifyTotpAndConsume(userId, settings, code);
+        Long matched = verifyTotpAndConsume(userId, code);
         if (matched == null) {
             rateLimiter.recordFailure(userId);
             throw new DataFetchingException(ERROR_INVALID_CODE);
@@ -371,7 +372,7 @@ public class TotpFactorMutation {
         }
         rateLimiter.recordSuccess(userId);
         MfaSession session = mfaService.getMfaSession(request);
-        auditLog.record("regenerateBackupCodes", "success", userId, auditSiteKey(session), null);
+        auditLog.recordEvent("regenerateBackupCodes", OUTCOME_SUCCESS, userId, auditSiteKey(session), null);
         logger.info("Backup codes regenerated for user {}", userId);
         return new TotpBackupCodesResult(session, plaintext);
     }
@@ -407,7 +408,7 @@ public class TotpFactorMutation {
         if (!settings.isEnrolled()) {
             throw new DataFetchingException(ERROR_NOT_ENROLLED);
         }
-        Long matched = verifyTotpAndConsume(userId, settings, code);
+        Long matched = verifyTotpAndConsume(userId, code);
         if (matched == null) {
             rateLimiter.recordFailure(userId);
             throw new DataFetchingException(ERROR_INVALID_CODE);
@@ -424,7 +425,7 @@ public class TotpFactorMutation {
         if (session == null) {
             session = mfaService.createNoSessionError();
         }
-        auditLog.record("disable", "success", userId, auditSiteKey(session), null);
+        auditLog.recordEvent("disable", OUTCOME_SUCCESS, userId, auditSiteKey(session), null);
         logger.info("TOTP disabled for user {}", userId);
         return new Result(session);
     }
@@ -436,8 +437,7 @@ public class TotpFactorMutation {
      *
      * @return the matched counter on success, or {@code null} on failure / invalid input.
      */
-    private void authorizeReEnroll(JahiaUser user, String userId, TotpUserStore.TotpUserSettings settings,
-                                   boolean forceFlag, String currentCode) {
+    private void authorizeReEnroll(JahiaUser user, String userId, boolean forceFlag, String currentCode) {
         if (!forceFlag) {
             throw new DataFetchingException(ERROR_ALREADY_ENROLLED);
         }
@@ -454,7 +454,7 @@ public class TotpFactorMutation {
             logger.warn("Refused enroll(force=true) for user {}: rate-limited", userId);
             throw new DataFetchingException(ERROR_LOCKED_OUT);
         }
-        Long matched = verifyTotpAndConsume(userId, settings, currentCode);
+        Long matched = verifyTotpAndConsume(userId, currentCode);
         if (matched == null) {
             rateLimiter.recordFailure(userId);
             logger.warn("Refused enroll(force=true) for user {}: invalid currentCode", userId);
@@ -463,13 +463,13 @@ public class TotpFactorMutation {
         rateLimiter.recordSuccess(userId);
     }
 
-    private Long verifyTotpAndConsume(String userId, TotpUserStore.TotpUserSettings settings, String code) {
+    private Long verifyTotpAndConsume(String userId, String code) {
         if (!isAcceptableCodeLength(code)) {
             return null;
         }
-        // settings is unused here on purpose: the chokepoint re-reads the freshest
-        // lastUsedCounter from JCR inside the same transaction that persists the consumed
-        // counter, eliminating the read-modify-write race that previously allowed replay.
+        // The chokepoint re-reads the freshest lastUsedCounter from JCR inside the same
+        // transaction that persists the consumed counter, eliminating the read-modify-write
+        // race that previously allowed replay — so no pre-loaded settings are needed here.
         long now = System.currentTimeMillis() / 1000L;
         try {
             Optional<Long> matched = userStore.verifyAndConsumeTotp(userId, totpService, code.trim(),
@@ -499,7 +499,7 @@ public class TotpFactorMutation {
         long grace = graceDays == null ? 0L : graceDays;
         try {
             siteSettingsStore.save(session, siteKey, enabled, enforced, grace, enabledGroups);
-            auditLog.record("setSiteSettings", "success", currentUserName(), siteKey,
+            auditLog.recordEvent("setSiteSettings", OUTCOME_SUCCESS, currentUserName(), siteKey,
                     "enabled=" + enabled + ", enforced=" + enforced + ", graceDays=" + grace);
             return new TotpSiteSettingsResult(siteKey, enabled, enforced, grace, enabledGroups);
         } catch (RepositoryException e) {
@@ -521,12 +521,13 @@ public class TotpFactorMutation {
             throw new DataFetchingException("userId must not be blank");
         }
         TotpAdminAccess.requireSiteAdmin(siteKey);
+        String admin = currentUserName();
         try {
             userStore.disable(userId);
             userStore.clearGrace(userId);
             rateLimiter.recordSuccess(userId); // clear any lockout state too
-            auditLog.record("reset", "success", userId, siteKey, "by=" + currentUserName());
-            logger.info("TOTP enrollment reset for user {} by admin {}", userId, currentUserName());
+            auditLog.recordEvent("reset", OUTCOME_SUCCESS, userId, siteKey, "by=" + admin);
+            logger.info("TOTP enrollment reset for user {} by admin {}", userId, admin);
             return true;
         } catch (RepositoryException e) {
             logger.warn("Failed to reset TOTP for user {}: {}", userId, e.getMessage());

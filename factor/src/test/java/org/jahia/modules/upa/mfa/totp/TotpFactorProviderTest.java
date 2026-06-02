@@ -34,7 +34,7 @@ public class TotpFactorProviderTest {
     public void setUp() {
         totpService = new TotpService();
         secretBase32 = totpService.toBase32(totpService.generateSecret());
-        userStore = new FakeUserStore(totpService, secretBase32);
+        userStore = new FakeUserStore(secretBase32);
         provider = new TotpFactorProvider();
         provider.setTotpService(totpService);
         provider.setUserStore(userStore);
@@ -43,7 +43,7 @@ public class TotpFactorProviderTest {
         // verification outcome and the real (JCR-backed) log is not available in a unit test.
         provider.setAuditLog(new TotpAuditLog() {
             @Override
-            public void record(String eventType, String outcome, String userId, String siteKey, String detail) {
+            public void recordEvent(String eventType, String outcome, String userId, String siteKey, String detail) {
                 // no-op
             }
         });
@@ -84,13 +84,11 @@ public class TotpFactorProviderTest {
      * read-modify-write of {@code lastUsedCounter} under a single guard.
      */
     private static class FakeUserStore extends TotpUserStore {
-        private final TotpService totpService;
         private final String secret;
         long lastUsedCounter = 0L;
         final List<String> backupHashes = Collections.emptyList();
 
-        FakeUserStore(TotpService totpService, String secret) {
-            this.totpService = totpService;
+        FakeUserStore(String secret) {
             this.secret = secret;
         }
 

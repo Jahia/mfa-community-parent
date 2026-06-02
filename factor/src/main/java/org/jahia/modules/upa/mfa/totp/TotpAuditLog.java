@@ -71,7 +71,7 @@ public class TotpAuditLog {
     /**
      * Record an event. Best-effort: never throws into the caller's flow.
      */
-    public void record(String eventType, String outcome, String userId, String siteKey, String detail) {
+    public void recordEvent(String eventType, String outcome, String userId, String siteKey, String detail) {
         try {
             JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
                 JCRNodeWrapper log = ensureLogNode(session);
