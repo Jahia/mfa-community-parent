@@ -26,6 +26,10 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <yarn.arguments>build:production</yarn.arguments>
+        <!-- Set -Dskip.login-ui=true to build only the OSGi bundle, skipping the
+             login-ui JS-SDK sub-module build. -->
+        <skip.login-ui>false</skip.login-ui>
+        <exec-maven-plugin.version>3.1.0</exec-maven-plugin.version>
     </properties>
 
     <repositories>
@@ -142,6 +146,39 @@
                     <execution>
                         <id>get-the-git-infos</id>
                         <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
+                Build the login-ui JS-SDK sub-module as part of this module's build.
+                login-ui has packaging=pom, and a bundle-packaged project cannot aggregate
+                <modules>, so we invoke its self-contained Maven build in-place via the SAME
+                Maven (${maven.home}) at the install phase. The tgz lands in login-ui/target/
+                (where tests/ci.build.sh expects it) and is installed to the local repo.
+                Disable with -Dskip.login-ui=true.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>build-login-ui</id>
+                        <phase>install</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <skip>${skip.login-ui}</skip>
+                            <executable>${maven.home}/bin/mvn</executable>
+                            <workingDirectory>${project.basedir}/login-ui</workingDirectory>
+                            <arguments>
+                                <argument>-B</argument>
+                                <argument>clean</argument>
+                                <argument>install</argument>
+                                <argument>-DskipTests</argument>
+                            </arguments>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
