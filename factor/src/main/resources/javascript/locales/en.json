@@ -45,6 +45,7 @@
     "description": "Choose whether two-factor authentication (TOTP) is active on this site and whether all users must enrol.",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
+    "saving": "Saving…",
     "saved": "Settings saved.",
     "enabled": {
       "label": "Enable TOTP MFA on this site",
@@ -56,7 +57,7 @@
     },
     "graceDays": {
       "label": "Grace period (days)",
-      "help": "When enforcing, the number of days a newly-prompted user may still sign in before enrollment becomes mandatory. 0 = immediate."
+      "help": "When enforcing, the number of days a newly-prompted user may still sign in before enrollment becomes mandatory. 0 = immediate, maximum 365."
     },
     "groups": {
       "label": "Restrict to groups (optional)",
@@ -68,17 +69,20 @@
     },
     "loginUrl": {
       "label": "Login page URL",
-      "help": "A site page reachable without authentication that renders the TOTP login UI, e.g. /sites/mySite/login.html."
+      "help": "A site page reachable without authentication that renders the TOTP login UI. Must be a relative path starting with /, e.g. /sites/mySite/login.html — absolute or external URLs are rejected."
     },
     "logoutUrl": {
       "label": "Logout page URL",
-      "help": "An optional custom sign-out page, e.g. /sites/mySite/logout.html."
+      "help": "An optional custom sign-out page. Must be a relative path starting with /, e.g. /sites/mySite/logout.html — absolute or external URLs are rejected."
     },
     "reset": {
       "title": "Reset a user's MFA",
       "help": "Clear a user's TOTP enrollment when they have lost both their device and their backup codes. The user will be able to enrol again at next login.",
       "placeholder": "username",
       "button": "Reset MFA",
+      "confirmText": "This will immediately clear {{userId}}'s authenticator enrollment and all backup codes. They will sign in without a second factor until they re-enrol. This cannot be undone.",
+      "confirmButton": "Yes, reset this user's MFA",
+      "cancelButton": "Cancel",
       "done": "The user's TOTP enrollment has been reset."
     },
     "audit": {
@@ -96,6 +100,8 @@
     "errors": {
       "permissionDenied": "You don't have permission to change these settings.",
       "notAuthenticated": "Please sign in again to change these settings.",
+      "invalidUrl": "The login/logout URL must be a relative path starting with / (e.g. /sites/mySite/login.html). Absolute or external URLs are not allowed.",
+      "invalidGraceDays": "The grace period must be between 0 and 365 days.",
       "generic": "Could not save the settings. Please try again."
     }
   }

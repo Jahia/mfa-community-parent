@@ -61,6 +61,8 @@ public class TotpFactorMutation {
     private static final String ERROR_INTERNAL = "factor.totp.internal_error";
     private static final String ERROR_LOCKED_OUT = "factor.totp.locked_out";
     private static final String ERROR_FORCE_NOT_ALLOWED = "factor.totp.force_not_allowed";
+    private static final String ERROR_INVALID_URL = "factor.totp.invalid_url";
+    private static final String ERROR_INVALID_GRACE_DAYS = "factor.totp.invalid_grace_days";
     private static final String OUTCOME_SUCCESS = "success";
 
     /** HTTP session attribute used to persist self-service enrollment state when no MFA session exists. */
@@ -484,7 +486,9 @@ public class TotpFactorMutation {
     @GraphQLField
     @GraphQLName("setSiteSettings")
     @GraphQLDescription("Set the per-site TOTP policy (enabled / enforced / graceDays / enabledGroups) and the "
-            + "optional per-site login/logout URLs. Caller must be a site administrator on the target site.")
+            + "optional per-site login/logout URLs. URLs must be server-relative paths starting with '/' "
+            + "(open-redirect guard); graceDays must be between 0 and 365. Caller must be a site "
+            + "administrator on the target site.")
     public TotpSiteSettingsResult setSiteSettings(
             @GraphQLName("siteKey") @GraphQLNonNull String siteKey,
             @GraphQLName("enabled") @GraphQLNonNull Boolean enabled,
@@ -499,14 +503,30 @@ public class TotpFactorMutation {
         }
         JCRSessionWrapper session = TotpAdminAccess.requireSiteAdmin(siteKey);
         long grace = graceDays == null ? 0L : graceDays;
+        if (grace < 0L || grace > TotpSiteSettingsStore.MAX_GRACE_DAYS) {
+            throw new DataFetchingException(ERROR_INVALID_GRACE_DAYS);
+        }
+        // Open-redirect guard: only server-relative paths may be stored. Validate here (clear,
+        // field-specific error for the UI) on top of the enforcement inside the store itself.
+        String cleanLoginUrl;
+        String cleanLogoutUrl;
         try {
-            siteSettingsStore.save(session, siteKey, enabled, enforced, grace, enabledGroups, loginUrl, logoutUrl);
+            cleanLoginUrl = TotpSiteSettingsStore.validateSiteRelativeUrl(loginUrl);
+            cleanLogoutUrl = TotpSiteSettingsStore.validateSiteRelativeUrl(logoutUrl);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Rejected TOTP site settings for {}: invalid login/logout URL submitted by {}",
+                    siteKey, currentUserName());
+            throw new DataFetchingException(ERROR_INVALID_URL);
+        }
+        try {
+            siteSettingsStore.save(session, siteKey, new TotpSiteSettingsStore.TotpSiteSettings(
+                    enabled, enforced, grace, enabledGroups, cleanLoginUrl, cleanLogoutUrl));
             auditLog.recordEvent("setSiteSettings", OUTCOME_SUCCESS, currentUserName(), siteKey,
                     "enabled=" + enabled + ", enforced=" + enforced + ", graceDays=" + grace
-                            + ", loginUrl=" + StringUtils.trimToEmpty(loginUrl)
-                            + ", logoutUrl=" + StringUtils.trimToEmpty(logoutUrl));
+                            + ", loginUrl=" + StringUtils.defaultString(cleanLoginUrl)
+                            + ", logoutUrl=" + StringUtils.defaultString(cleanLogoutUrl));
             return new TotpSiteSettingsResult(siteKey, enabled, enforced, grace, enabledGroups,
-                    StringUtils.trimToNull(loginUrl), StringUtils.trimToNull(logoutUrl));
+                    cleanLoginUrl, cleanLogoutUrl);
         } catch (RepositoryException e) {
             logger.warn("Failed to save TOTP site settings for {}: {}", siteKey, e.getMessage());
             throw new DataFetchingException(ERROR_INTERNAL);

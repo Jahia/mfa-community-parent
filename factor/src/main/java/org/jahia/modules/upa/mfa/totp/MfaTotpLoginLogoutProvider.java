@@ -132,7 +132,16 @@ public class MfaTotpLoginLogoutProvider implements LoginUrlProvider, LogoutUrlPr
         }
         try {
             TotpSiteSettingsStore.TotpSiteSettings settings = siteSettingsStore.load(siteKey);
-            return login ? settings.getLoginUrl() : settings.getLogoutUrl();
+            String url = login ? settings.getLoginUrl() : settings.getLogoutUrl();
+            // Defense-in-depth open-redirect guard: the store validates on save, but values
+            // written before that guard existed (or via direct JCR tooling) must never be
+            // allowed to redirect the login flow off-site.
+            if (url != null && !TotpSiteSettingsStore.isSafeSiteRelativeUrl(url)) {
+                logger.warn("Ignoring unsafe per-site TOTP {} URL on site {} (not a server-relative path)",
+                        login ? "login" : "logout", siteKey);
+                return null;
+            }
+            return url;
         } catch (RepositoryException e) {
             logger.debug("Failed to read per-site TOTP {} URL for site {}: {}",
                     login ? "login" : "logout", siteKey, e.getMessage());

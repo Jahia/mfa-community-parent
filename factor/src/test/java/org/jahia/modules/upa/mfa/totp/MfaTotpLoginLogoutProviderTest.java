@@ -39,8 +39,8 @@ public class MfaTotpLoginLogoutProviderTest {
 
     @Test
     public void alwaysWillingToProvideAUrl() {
-        // hasCustom*Url() must be a stable true so the provider is registered and consulted;
-        // the real decision happens per-request in get*Url (see class javadoc).
+        // Both "has custom URL" flags must be a stable true so the provider is registered and
+        // consulted; the real decision happens per request in the URL getters — see class javadoc.
         MfaTotpLoginLogoutProvider provider = new MfaTotpLoginLogoutProvider();
         provider.activate(null);
         assertTrue(provider.hasCustomLoginUrl());

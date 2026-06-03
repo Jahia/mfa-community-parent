@@ -12,6 +12,7 @@ import {mapAdminError} from './siteSettings.util';
 const ResetUserSection = ({siteKey}) => {
     const {t} = useTranslation('mfa-totp-factor');
     const [userId, setUserId] = useState('');
+    const [confirming, setConfirming] = useState(false);
     const [done, setDone] = useState(false);
     const [errorKey, setErrorKey] = useState(null);
 
@@ -27,7 +28,10 @@ const ResetUserSection = ({siteKey}) => {
         }
     });
 
+    // Two-phase destructive action: the first click only ARMS the reset (shows the
+    // irreversibility warning); the actual mutation requires a second, explicit click.
     const reset = () => {
+        setConfirming(false);
         setDone(false);
         setErrorKey(null);
         resetMutation({variables: {userId: userId.trim(), siteKey}});
@@ -47,13 +51,39 @@ const ResetUserSection = ({siteKey}) => {
                        placeholder={t('siteSettings.reset.placeholder')}
                        data-testid="reset-user-input"
                        style={{padding: '0.4rem', minWidth: 240, borderRadius: 4, border: '1px solid #ccc'}}
-                       onChange={e => setUserId(e.target.value)}/>
+                       onChange={e => {
+                           setUserId(e.target.value);
+                           setConfirming(false);
+                       }}/>
                 <Button color="danger"
                         data-testid="reset-user-btn"
-                        isDisabled={loading || userId.trim() === ''}
+                        isDisabled={loading || confirming || userId.trim() === ''}
                         label={t('siteSettings.reset.button')}
-                        onClick={reset}/>
+                        onClick={() => {
+                            setDone(false);
+                            setErrorKey(null);
+                            setConfirming(true);
+                        }}/>
             </div>
+            {confirming && (
+                <div data-testid="reset-user-confirm"
+                     style={{marginTop: 12, padding: 12, border: '1px solid #c00', borderRadius: 4, maxWidth: 560}}
+                >
+                    <Typography style={{display: 'block', marginBottom: 12}}>
+                        {t('siteSettings.reset.confirmText', {userId: userId.trim()})}
+                    </Typography>
+                    <div style={{display: 'flex', gap: 12}}>
+                        <Button color="danger"
+                                data-testid="reset-user-confirm-btn"
+                                isDisabled={loading}
+                                label={t('siteSettings.reset.confirmButton')}
+                                onClick={reset}/>
+                        <Button data-testid="reset-user-cancel-btn"
+                                label={t('siteSettings.reset.cancelButton')}
+                                onClick={() => setConfirming(false)}/>
+                    </div>
+                </div>
+            )}
             {done && (
                 <Typography style={{color: '#080', display: 'block', marginTop: 12}} data-testid="reset-user-done">
                     {t('siteSettings.reset.done')}

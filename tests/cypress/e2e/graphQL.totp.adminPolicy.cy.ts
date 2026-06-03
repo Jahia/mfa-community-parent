@@ -109,6 +109,35 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
         });
     });
 
+    it('rejects absolute / protocol-relative / scheme login URLs (open-redirect guard)', () => {
+        ['https://attacker.example/phish', '//attacker.example', 'javascript:alert(1)', 'sites/no-leading-slash']
+            .forEach(bad => {
+                setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false, loginUrl: bad}).then(res => {
+                    expect(firstErrorMessage(res), `"${bad}" must be rejected`).to.match(/invalid_url/);
+                });
+            });
+        // Same guard applies to the logout URL.
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false, logoutUrl: 'https://attacker.example'}).then(res => {
+            expect(firstErrorMessage(res), 'absolute logout URL must be rejected').to.match(/invalid_url/);
+        });
+        // A rejected save must not have persisted anything.
+        getSiteSettings(SITE_KEY).then(res => {
+            const s = res?.data?.mfaTotp?.siteSettings;
+            const stored = `${s.loginUrl ?? ''}${s.logoutUrl ?? ''}`;
+            expect(stored, 'rejected URLs must not be stored').to.not.contain('attacker');
+        });
+    });
+
+    it('rejects a grace period above 365 days (policy-bypass guard)', () => {
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 99999}).then(res => {
+            expect(firstErrorMessage(res), 'huge graceDays must be rejected').to.match(/invalid_grace_days/);
+        });
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 365}).then(res => {
+            const s = res?.data?.upa?.mfaFactors?.totp?.setSiteSettings;
+            expect(s.graceDays, 'the documented maximum must be accepted').to.eq(365);
+        });
+    });
+
     it('denies setSiteSettings to a non site-admin user', () => {
         const usr = jfaker.internet.username();
         const pwd = jfaker.internet.password();

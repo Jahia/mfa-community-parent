@@ -345,29 +345,40 @@ public class TotpUserStore {
     }
 
     /**
-     * Remove a single backup-code hash by index (single-use consumption).
+     * Atomically verify a submitted backup code AND remove the matched hash (single-use
+     * consumption) in a SINGLE JCR transaction — the backup-code analogue of
+     * {@link #verifyAndConsumeTotp}.
+     * <p>
+     * The hash list is re-read from JCR inside the same transaction that persists the
+     * shrunken list. Verifying against a pre-loaded snapshot and then removing "by index"
+     * in a second transaction would let two parallel requests submitting the same code both
+     * succeed (double-spend) — and the second removal would delete whichever <i>innocent</i>
+     * code had shifted into that index.
+     *
+     * @return {@code true} if a code matched and its hash was consumed
      */
-    public void consumeBackupCode(String userId, int index) throws RepositoryException {
-        JCRTemplate.getInstance().doExecuteWithSystemSession(systemSession -> {
+    public boolean verifyAndConsumeBackupCode(String userId, BackupCodes backupCodes, String submitted)
+            throws RepositoryException {
+        return Boolean.TRUE.equals(JCRTemplate.getInstance().doExecuteWithSystemSession(systemSession -> {
             JCRUserNode user = userManagerService.lookupUser(userId, systemSession);
             if (user == null || !user.hasProperty(PROP_BACKUP_CODES)) {
-                return null;
+                return false;
             }
             Value[] values = user.getProperty(PROP_BACKUP_CODES).getValues();
-            if (index < 0 || index >= values.length) {
-                return null;
+            List<String> hashes = new ArrayList<>(values.length);
+            for (Value v : values) {
+                hashes.add(v.getString());
             }
-            List<String> remaining = new ArrayList<>(values.length - 1);
-            for (int i = 0; i < values.length; i++) {
-                if (i != index) {
-                    remaining.add(values[i].getString());
-                }
+            Optional<Integer> matched = backupCodes.verifyAndIndex(hashes, submitted);
+            if (!matched.isPresent()) {
+                return false;
             }
-            user.setProperty(PROP_BACKUP_CODES, remaining.toArray(new String[0]));
+            hashes.remove(matched.get().intValue());
+            user.setProperty(PROP_BACKUP_CODES, hashes.toArray(new String[0]));
             systemSession.save();
-            logger.info("Backup code consumed for user {} (remaining: {})", user.getName(), remaining.size());
-            return null;
-        });
+            logger.info("Backup code consumed for user {} (remaining: {})", user.getName(), hashes.size());
+            return true;
+        }));
     }
 
     /**

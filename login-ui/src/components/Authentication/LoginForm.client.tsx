@@ -99,7 +99,7 @@ export default function LoginForm(props: Readonly<LoginFormProps>) {
             data-testid="login-remember-me"
             onChange={(e) => setRememberMe(e.target.checked)}
           />
-          <label htmlFor="rememberMe">Remember me</label>
+          <label htmlFor="rememberMe">{t("login.rememberMe")}</label>
         </div>
         <ErrorMessage message={error} />
         <button

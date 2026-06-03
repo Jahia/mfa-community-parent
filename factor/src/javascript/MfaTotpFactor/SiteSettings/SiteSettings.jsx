@@ -81,7 +81,7 @@ const SiteSettings = () => {
                 color="accent"
                 isDisabled={saving || loading}
                 data-testid="site-settings-save-btn"
-                label={t('siteSettings.save')}
+                label={saving ? t('siteSettings.saving') : t('siteSettings.save')}
                 onClick={save}/>
     ];
 
@@ -121,6 +121,8 @@ const SiteSettings = () => {
                                        type="number"
                                        value={graceDays}
                                        disabled={!enabled || !enforced}
+                                       min={0}
+                                       max={365}
                                        label={t('siteSettings.graceDays.label')}
                                        help={t('siteSettings.graceDays.help')}
                                        onChange={v => setGraceDays(v)}/>
@@ -206,7 +208,7 @@ const CheckboxField = ({id, testid, checked, disabled, label, help, onChange}) =
     </div>
 );
 
-const TextField = ({id, testid, type, value, disabled, placeholder, label, help, onChange}) => (
+const TextField = ({id, testid, type, value, disabled, placeholder, label, help, min, max, onChange}) => (
     <div style={{marginBottom: 24, opacity: disabled ? 0.5 : 1}}>
         <label htmlFor={id} style={{fontWeight: 600, display: 'block', marginBottom: 4}}>{label}</label>
         <input id={id}
@@ -214,6 +216,8 @@ const TextField = ({id, testid, type, value, disabled, placeholder, label, help,
                value={value}
                disabled={disabled}
                placeholder={placeholder}
+               min={min}
+               max={max}
                data-testid={testid}
                style={{padding: '0.4rem', minWidth: 280, borderRadius: 4, border: '1px solid #ccc'}}
                onChange={e => onChange(e.target.value)}/>

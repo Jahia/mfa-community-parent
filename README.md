@@ -53,6 +53,16 @@ is configured for a site the provider returns nothing, so deploying the module n
 login on its own. Global `.cfg` edits are applied live (no restart); per-site values take effect
 immediately on save.
 
+**Open-redirect guard:** per-site URLs must be server-relative paths starting with `/`
+(e.g. `/sites/mySite/login.html`). Absolute (`https://…`), protocol-relative (`//host`,
+`/\host`) and scheme-carrying (`javascript:`) values are rejected at save time, and any
+pre-existing unsafe value is ignored at resolve time — a site administrator can never point
+the login redirect off-site. The global `.cfg` values are operator-controlled (filesystem
+trust level) and are not restricted, so an external SSO portal remains possible globally.
+
+The enrollment **grace period** is bounded to **0–365 days** (an unbounded value would
+silently disable enforcement forever).
+
 Tunable security constants (`DRIFT_WINDOWS`, `TIME_STEP_SECONDS`, `DIGITS`, PBKDF2
 iterations, ...) live in `TotpService` and `BackupCodes`. To change them, fork and rebuild.
 
@@ -139,7 +149,25 @@ valid TOTP for the existing secret, before the secret can be rotated.
 
 `confirmEnroll` and `regenerateBackupCodes` return ten one-shot codes. They are the only
 recovery path if the user loses their authenticator device. The user must store them
-securely; the server keeps only PBKDF2 hashes and cannot recover them.
+securely; the server keeps only PBKDF2 hashes and cannot recover them. Consumption is
+atomic (verify-and-remove in a single JCR transaction), so a backup code can never be
+spent twice — not even by two simultaneous login attempts.
+
+## Lockout & recovery
+
+A user who has lost **both** their authenticator device and their backup codes cannot sign
+in on an enforcing site. The recovery path is administrative:
+
+1. A **site administrator** opens the site's *Two-factor authentication* administration
+   page and uses **"Reset a user's MFA"** (GraphQL: `resetUserMfa(userId, siteKey)`).
+   A confirmation step guards the action; it clears the user's secret, backup codes,
+   grace tracking and any management lockout.
+2. The reset is recorded in the audit log (`reset` event, with the acting admin in the
+   detail field) and visible under *Audit & reporting* on the same page.
+3. At next login the user enrolls again from scratch (new secret, new backup codes).
+
+If codes from a healthy authenticator are rejected, check the device clock: the server
+accepts ±1 time step (30 s) of drift around the current 30-second window.
 
 ## Building
 

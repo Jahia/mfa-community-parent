@@ -13,6 +13,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -77,7 +78,7 @@ public class TotpSecretCipher {
             byte[] iv = new byte[GCM_IV_BYTES];
             secureRandom.nextBytes(iv);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.ENCRYPT_MODE, key.get(), new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.init(Cipher.ENCRYPT_MODE, requireKey(), new GCMParameterSpec(GCM_TAG_BITS, iv));
             byte[] ciphertext = cipher.doFinal(plaintextBase32.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             Base64.Encoder enc = Base64.getEncoder();
             return PREFIX_V1 + enc.encodeToString(iv) + ":" + enc.encodeToString(ciphertext);
@@ -107,7 +108,7 @@ public class TotpSecretCipher {
             byte[] iv = dec.decode(parts[1]);
             byte[] ciphertext = dec.decode(parts[2]);
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.DECRYPT_MODE, key.get(), new GCMParameterSpec(GCM_TAG_BITS, iv));
+            cipher.init(Cipher.DECRYPT_MODE, requireKey(), new GCMParameterSpec(GCM_TAG_BITS, iv));
             byte[] plain = cipher.doFinal(ciphertext);
             return new String(plain, java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
@@ -118,6 +119,21 @@ public class TotpSecretCipher {
     /** True if the value carries the encryption envelope (i.e. is NOT legacy plaintext). */
     public boolean isEncrypted(String stored) {
         return stored != null && stored.startsWith(PREFIX_V1);
+    }
+
+    /**
+     * The resolved key, or a clear failure when activation never completed (e.g. the component
+     * was partially activated after a fatal key-resolution error). A bare NPE inside the cipher
+     * init would be much harder for an operator to diagnose.
+     */
+    private SecretKey requireKey() {
+        SecretKey k = key.get();
+        if (k == null) {
+            throw new IllegalStateException("TOTP secret encryption key is not initialized — check the "
+                    + CONFIG_KEY_PROPERTY + " property (PID org.jahia.modules.totp) and the key file under "
+                    + KEY_FILE_RELATIVE);
+        }
+        return k;
     }
 
     private SecretKey resolveKey(Map<String, Object> properties) {
@@ -138,23 +154,42 @@ public class TotpSecretCipher {
         Path keyFile = resolveKeyFilePath();
         try {
             if (Files.exists(keyFile)) {
-                byte[] raw = Base64.getDecoder().decode(new String(Files.readAllBytes(keyFile),
-                        java.nio.charset.StandardCharsets.UTF_8).trim());
-                return new SecretKeySpec(raw, ALGORITHM);
+                return readKeyFile(keyFile);
             }
-            // Generate, then persist with owner-only permissions where supported.
-            KeyGenerator kg = KeyGenerator.getInstance(ALGORITHM);
-            kg.init(KEY_BITS, secureRandom);
-            SecretKey generated = kg.generateKey();
-            Files.createDirectories(keyFile.getParent());
-            Files.write(keyFile, Base64.getEncoder().encodeToString(generated.getEncoded())
-                    .getBytes(java.nio.charset.StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
-            restrictPermissions(keyFile);
-            logger.info("Generated a new TOTP secret encryption key at {}", keyFile);
-            return generated;
+            return generateAndPersistKey(keyFile);
         } catch (Exception e) {
             throw new IllegalStateException("Unable to load or create the TOTP secret encryption key at " + keyFile, e);
         }
+    }
+
+    /**
+     * Generate a fresh key and persist it with owner-only permissions where supported.
+     * {@code CREATE_NEW} is the atomicity guarantee: exactly ONE writer can win, so when two
+     * cluster nodes sharing the var directory boot concurrently the loser adopts the winner's
+     * key instead of failing activation.
+     */
+    private SecretKey generateAndPersistKey(Path keyFile) throws java.security.NoSuchAlgorithmException, IOException {
+        KeyGenerator kg = KeyGenerator.getInstance(ALGORITHM);
+        kg.init(KEY_BITS, secureRandom);
+        SecretKey generated = kg.generateKey();
+        Files.createDirectories(keyFile.getParent());
+        try {
+            Files.write(keyFile, Base64.getEncoder().encodeToString(generated.getEncoded())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
+        } catch (FileAlreadyExistsException race) {
+            logger.info("TOTP key file appeared concurrently at {} (cluster boot race) — using the existing key",
+                    keyFile);
+            return readKeyFile(keyFile);
+        }
+        restrictPermissions(keyFile);
+        logger.info("Generated a new TOTP secret encryption key at {}", keyFile);
+        return generated;
+    }
+
+    private static SecretKey readKeyFile(Path keyFile) throws IOException {
+        byte[] raw = Base64.getDecoder().decode(new String(Files.readAllBytes(keyFile),
+                java.nio.charset.StandardCharsets.UTF_8).trim());
+        return new SecretKeySpec(raw, ALGORITHM);
     }
 
     private Path resolveKeyFilePath() {

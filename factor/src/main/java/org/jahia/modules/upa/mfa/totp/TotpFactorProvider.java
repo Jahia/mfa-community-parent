@@ -152,7 +152,7 @@ public class TotpFactorProvider implements MfaFactorProvider {
         throw new MfaException(ERROR_ENROLLMENT_REQUIRED, "user", userId);
     }
 
-    private boolean isInScope(String userId, java.util.List<String> enabledGroups) throws MfaException {
+    private boolean isInScope(String userId, List<String> enabledGroups) throws MfaException {
         try {
             return userStore.isMemberOfAnyGroup(userId, enabledGroups);
         } catch (RepositoryException e) {
@@ -207,7 +207,7 @@ public class TotpFactorProvider implements MfaFactorProvider {
 
         boolean backupCode = BackupCodes.looksLikeBackupCode(submitted);
         boolean ok = backupCode
-                ? verifyBackupCode(userId, settings.getBackupCodeHashes(), submitted)
+                ? verifyBackupCode(userId, submitted)
                 : verifyTotpCode(userId, submitted);
         String siteKey = verificationContext.getSessionContext().getSiteKey();
         auditLog.recordEvent("verify", ok ? "success" : "failure", userId, siteKey,
@@ -235,17 +235,18 @@ public class TotpFactorProvider implements MfaFactorProvider {
         return false;
     }
 
-    private boolean verifyBackupCode(String userId, List<String> hashes, String submitted) {
-        Optional<Integer> matchIndex = backupCodes.verifyAndIndex(hashes, submitted);
-        if (matchIndex.isPresent()) {
-            try {
-                userStore.consumeBackupCode(userId, matchIndex.get());
-            } catch (RepositoryException e) {
-                logger.warn("Failed to consume backup code for user {}: {}", userId, e.getMessage());
-                // If we cannot remove the hash, refuse the login — single-use guarantee takes precedence
-                return false;
+    private boolean verifyBackupCode(String userId, String submitted) {
+        // Go through the atomic verify-and-consume chokepoint: the hash list is re-read and
+        // the matched hash removed in the SAME JCR transaction, so two parallel submissions
+        // of the same backup code cannot both succeed (single-use guarantee).
+        try {
+            if (userStore.verifyAndConsumeBackupCode(userId, backupCodes, submitted)) {
+                return true;
             }
-            return true;
+        } catch (RepositoryException e) {
+            logger.warn("Failed to verify/consume backup code for user {}: {}", userId, e.getMessage());
+            // If we cannot atomically remove the hash, refuse the login — single-use takes precedence.
+            return false;
         }
         logger.warn("Backup code verification failed for user {}", userId);
         return false;

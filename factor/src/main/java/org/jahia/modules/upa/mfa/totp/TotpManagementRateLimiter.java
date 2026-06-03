@@ -89,7 +89,11 @@ public class TotpManagementRateLimiter {
                 return lockedNow(failures, windowStart, System.currentTimeMillis());
             }));
         } catch (RepositoryException e) {
-            logger.warn("Failed to read TOTP lockout state for user {}: {}", userId, e.getMessage());
+            // Fail open, but LOUDLY: while JCR is unhealthy the brute-force throttle on the
+            // management mutations is disabled (the code check itself still has to pass).
+            logger.error("TOTP management lockout check FAILED OPEN for user {} — brute-force throttling "
+                    + "is degraded until JCR recovers; check repository health. Cause: {}",
+                    userId, e.getMessage());
             return false; // fail open
         }
     }
@@ -127,7 +131,11 @@ public class TotpManagementRateLimiter {
                 return false;
             }));
         } catch (RepositoryException e) {
-            logger.warn("Failed to record TOTP lockout failure for user {}: {}", userId, e.getMessage());
+            // Fail open, but LOUDLY: a failure that cannot be recorded does not count towards
+            // the lockout window, weakening the throttle while JCR is unhealthy.
+            logger.error("Failed to record TOTP lockout failure for user {} — brute-force throttling "
+                    + "is degraded until JCR recovers; check repository health. Cause: {}",
+                    userId, e.getMessage());
             return false; // fail open
         }
     }

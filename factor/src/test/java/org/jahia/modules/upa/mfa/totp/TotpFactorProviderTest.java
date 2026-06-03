@@ -7,11 +7,13 @@ import org.junit.Before;
 import org.junit.Test;
 
 import javax.jcr.RepositoryException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -72,6 +74,21 @@ public class TotpFactorProviderTest {
         assertFalse("replayed TOTP code MUST be rejected at login", provider.verify(ctx(code)));
     }
 
+    @Test
+    public void verify_backupCode_isSingleUse() throws Exception {
+        BackupCodes backupCodes = new BackupCodes();
+        String plaintext = "ABCDEFGHJK"; // valid alphabet, not 6 digits → routed as backup code
+        userStore.backupHashes.add(backupCodes.hash(plaintext));
+        userStore.backupHashes.add(backupCodes.hash("ZZZZZZZZZZ"));
+
+        // First use → success, hash consumed atomically
+        assertTrue("first use of a backup code must succeed", provider.verify(ctx(plaintext)));
+        assertEquals("only the matched hash must be consumed", 1, userStore.backupHashes.size());
+        // Second use of the SAME code → must be rejected (single-use guarantee)
+        assertFalse("a backup code MUST NOT be usable twice", provider.verify(ctx(plaintext)));
+        assertEquals("the other code must remain untouched", 1, userStore.backupHashes.size());
+    }
+
     private static VerificationContext ctx(String code) {
         MfaSessionContext sessionContext = new MfaSessionContext(
                 USER_ID, Locale.ENGLISH, null, false, Collections.singletonList("totp"));
@@ -86,7 +103,7 @@ public class TotpFactorProviderTest {
     private static class FakeUserStore extends TotpUserStore {
         private final String secret;
         long lastUsedCounter = 0L;
-        final List<String> backupHashes = Collections.emptyList();
+        final List<String> backupHashes = new ArrayList<>();
 
         FakeUserStore(String secret) {
             this.secret = secret;
@@ -120,9 +137,19 @@ public class TotpFactorProviderTest {
             this.lastUsedCounter = counter;
         }
 
+        /**
+         * Replicates the production chokepoint's atomicity: verify against the CURRENT list
+         * and remove the matched hash under a single guard (no stale-index consumption).
+         */
         @Override
-        public void consumeBackupCode(String userId, int index) throws RepositoryException {
-            // no-op; backup-code path not exercised here
+        public synchronized boolean verifyAndConsumeBackupCode(String userId, BackupCodes backupCodes,
+                                                               String submitted) throws RepositoryException {
+            Optional<Integer> matched = backupCodes.verifyAndIndex(backupHashes, submitted);
+            if (!matched.isPresent()) {
+                return false;
+            }
+            backupHashes.remove(matched.get().intValue());
+            return true;
         }
     }
 
