@@ -1,0 +1,40 @@
+<upaWebauthn = 'http://www.jahia.org/jahia/user-password-authentication/webauthn/nt/1.0'>
+<nt = 'http://www.jcp.org/jcr/nt/1.0'>
+<mix = 'http://www.jcp.org/jcr/mix/1.0'>
+
+// A single registered WebAuthn credential (passkey / security key). Stored as a child node
+// under the user's upaWebauthn:userSettings mixin, so a user can register several authenticators.
+[upaWebauthn:credential] > nt:base, mix:created
+ - upaWebauthn:credentialId (string) mandatory protected
+ - upaWebauthn:publicKeyCose (string) mandatory protected
+ - upaWebauthn:signCount (long) = '0' autocreated protected
+ - upaWebauthn:userHandle (string) protected
+ - upaWebauthn:transports (string) multiple protected
+ - upaWebauthn:aaguid (string) protected
+ - upaWebauthn:nickname (string)
+ - upaWebauthn:lastUsedAt (long) = '0' autocreated
+
+// Mixin carrying a user's registered credentials. The credential nodes live underneath it.
+// graceStartedAt tracks when an enforcing site first prompted a not-yet-registered user.
+[upaWebauthn:userSettings] mixin
+ - upaWebauthn:graceStartedAt (long) = '0' autocreated protected
+ + * (upaWebauthn:credential) = upaWebauthn:credential
+
+// Per-site WebAuthn policy — mirrors upaTotp:siteSettings.
+[upaWebauthn:siteSettings] mixin
+ - upaWebauthn:enabled (boolean) = false autocreated
+ - upaWebauthn:enforced (boolean) = false autocreated
+ - upaWebauthn:graceDays (long) = '0' autocreated
+ - upaWebauthn:enabledGroups (string) multiple
+
+// Best-effort audit trail (one child node per event) under /settings.
+[upaWebauthn:auditEvent] > nt:base, mix:created
+ - upaWebauthn:eventType (string) protected
+ - upaWebauthn:outcome (string) protected
+ - upaWebauthn:userId (string) protected
+ - upaWebauthn:siteKey (string) protected
+ - upaWebauthn:timestamp (long) protected
+ - upaWebauthn:detail (string) protected
+
+[upaWebauthn:auditLog] > nt:base, mix:created
+ + * (upaWebauthn:auditEvent) = upaWebauthn:auditEvent

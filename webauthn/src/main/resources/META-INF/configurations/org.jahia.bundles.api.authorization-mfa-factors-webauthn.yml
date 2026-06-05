@@ -1,0 +1,14 @@
+---
+mfaWebauthn:
+  grants:
+  - api: "graphql.MfaWebauthnFactorMutation"
+  - api: "graphql.MfaWebauthnFactorQuery"
+  - api: "graphql.MfaWebauthnPreparation"
+  - api: "graphql.MfaWebauthnRegistrationOptionsResult"
+  - api: "graphql.MfaWebauthnStatusResult"
+  - api: "graphql.MfaWebauthnCredential"
+  - api: "graphql.MfaWebauthnSiteSettingsResult"
+  - api: "graphql.MfaWebauthnAuditEvent"
+  - api: "graphql.MfaWebauthnEnrollmentReport"
+  auto_apply:
+  - always: "true"

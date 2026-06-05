@@ -7,7 +7,9 @@ import graphql.annotations.annotationTypes.GraphQLTypeExtension;
 import org.jahia.modules.graphql.provider.dxm.DXGraphQLProvider;
 
 /**
- * Adds a top-level {@code mfaWebAuthn} field on the GraphQL {@code Query} (stub placeholder).
+ * Adds a top-level {@code mfaWebauthn} field on the GraphQL {@code Query} so the UI can read the
+ * current user's credentials and the per-site policy. Attached to {@code DXGraphQLProvider.Query}
+ * (the UPA {@code impl.gql} package is not exported by the UPA API bundle).
  */
 @GraphQLTypeExtension(DXGraphQLProvider.Query.class)
 public class WebAuthnFactorQueryExtension {
@@ -17,9 +19,9 @@ public class WebAuthnFactorQueryExtension {
     }
 
     @GraphQLField
-    @GraphQLName("mfaWebAuthn")
-    @GraphQLDescription("Stub WebAuthn / FIDO2 factor placeholder.")
-    public static WebAuthnFactorQuery mfaWebAuthn() {
+    @GraphQLName("mfaWebauthn")
+    @GraphQLDescription("Read-only WebAuthn / FIDO2 factor operations")
+    public static WebAuthnFactorQuery mfaWebauthn() {
         return new WebAuthnFactorQuery();
     }
 }

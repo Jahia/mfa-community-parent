@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <artifactId>jahia-modules</artifactId>
+        <groupId>org.jahia.modules</groupId>
+        <version>8.2.3.0</version>
+    </parent>
+
+    <groupId>org.jahia.community</groupId>
+    <artifactId>mfa-factors-webauthn</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <name>UPA - MFA factors - WebAuthn</name>
+    <packaging>bundle</packaging>
+    <description>Third-party Jahia module adding a WebAuthn / FIDO2 (passkey, security key,
+        platform authenticator) factor to the User Password Authentication (UPA) Multi-Factor
+        Authentication framework. Phishing-resistant, origin-bound second factor.
+    </description>
+
+    <properties>
+        <jahia-depends>user-password-authentication-api,graphql-dxm-provider</jahia-depends>
+        <jahia-module-type>system</jahia-module-type>
+        <upa.version>0.3.0-SNAPSHOT</upa.version>
+        <webauthn.version>2.6.0</webauthn.version>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>jahia-public</id>
+            <name>Jahia Public Repository</name>
+            <url>https://devtools.jahia.com/nexus/content/groups/public</url>
+            <releases>
+                <enabled>true</enabled>
+                <updatePolicy>never</updatePolicy>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.jahia.modules</groupId>
+            <artifactId>user-password-authentication-api</artifactId>
+            <version>${upa.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.jahia.modules</groupId>
+            <artifactId>graphql-dxm-provider</artifactId>
+            <version>3.4.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.graphql-java</groupId>
+            <artifactId>graphql-java-annotations</artifactId>
+            <version>21.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.graphql-java</groupId>
+            <artifactId>graphql-java</artifactId>
+            <version>21.5</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.12.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.7</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- Jackson is exported by Jahia (2.19.x): used to (de)serialize the WebAuthn
+             ceremony JSON. Provided/imported, not embedded. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.19.0</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- WebAuthn relying-party ceremony validation, embedded into the bundle (not exported
+             by Jahia); jackson core + slf4j are imported from Jahia. The 2.x line no longer ships
+             a *-minimal* variant, so the FIDO Metadata Service transitive (httpclient5) comes
+             along and is embedded too — we never invoke the MDS (no attestation-trust check). -->
+        <dependency>
+            <groupId>com.yubico</groupId>
+            <artifactId>webauthn-server-core</artifactId>
+            <version>${webauthn.version}</version>
+        </dependency>
+        <!-- Pin the Jackson datatype modules webauthn pulls (2.22) down to Jahia's Jackson line
+             (2.19) so the embedded modules stay binary-compatible with the imported jackson-core. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jdk8</artifactId>
+            <version>2.19.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <version>2.19.0</version>
+        </dependency>
+        <!-- yubico parses the CBOR attestation object via a Jackson CBOR mapper. Jahia ships this
+             jar on the webapp classpath but does not export the package to OSGi, so embed it. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-cbor</artifactId>
+            <version>2.19.0</version>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>get-the-git-infos</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                    <instructions>
+                        <_dsannotations>*</_dsannotations>
+                        <!-- Embed the WebAuthn ceremony library + its non-Jahia transitives.
+                             Refined after `mvn dependency:tree`; jackson/slf4j stay imported. -->
+                        <Embed-Dependency>
+                            webauthn-server-core,yubico-util,cbor,numbers,datautilities,
+                            guava,failureaccess,listenablefuture,checker-qual,j2objc-annotations,
+                            jackson-datatype-jdk8,jackson-datatype-jsr310,jackson-dataformat-cbor,
+                            httpclient5,httpcore5,httpcore5-h2
+                        </Embed-Dependency>
+                        <Embed-Transitive>true</Embed-Transitive>
+                        <Import-Package>
+                            <!-- Edge references from embedded libs (httpclient5/guava) that Jahia
+                                 does not export and our code paths never hit; optional so they do
+                                 not block resolution. -->
+                            org.apache.commons.compress.compressors;resolution:=optional,
+                            org.apache.naming.java;resolution:=optional,
+                            javax.annotation.meta;resolution:=optional,
+                            ${jahia.plugin.projectPackageImport},
+                            graphql.annotations.annotationTypes;version="[6.5,99)",
+                            graphql.schema;version="[21.5,22)",
+                            org.jahia.modules.graphql.provider.dxm;version="[3.4,4)",
+                            org.jahia.modules.graphql.provider.dxm.osgi.annotations;version="[3.4,4)",
+                            org.jahia.modules.graphql.provider.dxm.util;version="[3.4,4)",
+                            com.fasterxml.jackson.databind;version="[2.13,3)",
+                            com.fasterxml.jackson.core;version="[2.13,3)",
+                            com.fasterxml.jackson.annotation;version="[2.13,3)",
+                            org.jahia.services.content,
+                            org.jahia.services.content.decorator,
+                            org.jahia.services.usermanager,
+                            org.jahia.settings,
+                            org.jahia.services,
+                            org.jahia.api,
+                            javax.servlet,
+                            javax.servlet.http,
+                            org.apache.commons.lang3,
+                            javax.jcr,
+                            javax.jcr.query,
+                            org.slf4j;version="[1.7,2)",
+                            org.jahia.modules.upa.mfa,
+                            org.jahia.modules.upa.mfa.gql,
+                            *
+                        </Import-Package>
+                    </instructions>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
