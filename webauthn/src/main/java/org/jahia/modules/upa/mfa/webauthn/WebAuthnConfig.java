@@ -38,11 +38,11 @@ public class WebAuthnConfig {
         @AttributeDefinition(name = "Relying Party ID",
                 description = "Effective domain the credentials are scoped to (e.g. localhost or example.com). "
                         + "Must be a registrable suffix of the browsing origin's host.")
-        String rpId() default "localhost";
+        String rpId() default DEFAULT_RP_ID;
 
         @AttributeDefinition(name = "Relying Party display name",
                 description = "Human-readable site name shown by the authenticator during registration.")
-        String rpName() default "Jahia";
+        String rpName() default DEFAULT_RP_NAME;
 
         @AttributeDefinition(name = "Allowed origins",
                 description = "Full origins (scheme://host[:port]) permitted in ceremonies, e.g. "
