@@ -31,7 +31,6 @@ import javax.servlet.http.HttpSession;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import static org.jahia.modules.upa.mfa.webauthn.WebAuthnFactorProvider.FACTOR_TYPE;
 
@@ -150,8 +149,9 @@ public class WebAuthnFactorMutation {
         try {
             WebAuthnService.RegistrationOutcome outcome = webAuthnService.finishRegistration(requestJson, response);
             String handle = credentialStore.userHandleFor(userId).map(ByteArray::getBase64Url).orElse(null);
-            credentialStore.addCredential(userId, outcome.getCredentialIdB64(), outcome.getPublicKeyCoseB64(),
-                    outcome.getSignCount(), handle, outcome.getTransports(), outcome.getAaguidB64(), nickname);
+            credentialStore.addCredential(userId, new WebAuthnCredentialStore.NewCredential(
+                    outcome.getCredentialIdB64(), outcome.getPublicKeyCoseB64(), outcome.getSignCount(),
+                    handle, outcome.getTransports(), outcome.getAaguidB64(), nickname));
             credentialStore.clearGrace(userId);
             http.removeAttribute(REGISTRATION_STATE_ATTR);
             auditLog.recordEvent("register", OUTCOME_SUCCESS, userId, null, null);

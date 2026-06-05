@@ -10,11 +10,10 @@ import org.osgi.service.metatype.annotations.ObjectClassDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Relying-Party configuration for the WebAuthn factor (PID {@code org.jahia.modules.webauthn}).
@@ -48,33 +47,42 @@ public class WebAuthnConfig {
         String[] origins() default {};
     }
 
-    private volatile String rpId;
-    private volatile String rpName;
-    private volatile Set<String> origins;
+    // Each holds an immutable value, swapped atomically on (re)configuration — avoids a
+    // volatile reference to a mutable collection (java:S3077).
+    private final AtomicReference<String> rpId = new AtomicReference<>("localhost");
+    private final AtomicReference<String> rpName = new AtomicReference<>("Jahia");
+    private final AtomicReference<Set<String>> origins = new AtomicReference<>(Collections.emptySet());
 
     @Activate
     @Modified
     public void activate(Config config) {
-        this.rpId = StringUtils.defaultIfBlank(config.rpId(), "localhost").trim();
-        this.rpName = StringUtils.defaultIfBlank(config.rpName(), "Jahia").trim();
-        this.origins = config.origins() == null ? Collections.emptySet()
-                : Arrays.stream(config.origins())
-                    .map(StringUtils::trimToNull)
-                    .filter(o -> o != null)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-        logger.info("WebAuthn factor configured (rpId={}, rpName={}, origins={})", rpId, rpName, origins);
+        rpId.set(StringUtils.defaultIfBlank(config.rpId(), "localhost").trim());
+        rpName.set(StringUtils.defaultIfBlank(config.rpName(), "Jahia").trim());
+        Set<String> parsed = new LinkedHashSet<>();
+        if (config.origins() != null) {
+            for (String origin : config.origins()) {
+                String trimmed = StringUtils.trimToNull(origin);
+                if (trimmed != null) {
+                    parsed.add(trimmed);
+                }
+            }
+        }
+        Set<String> immutableOrigins = Collections.unmodifiableSet(parsed);
+        origins.set(immutableOrigins);
+        logger.info("WebAuthn factor configured (rpId={}, rpName={}, origins={})",
+                rpId.get(), rpName.get(), immutableOrigins);
     }
 
     public String getRpId() {
-        return rpId;
+        return rpId.get();
     }
 
     public String getRpName() {
-        return rpName;
+        return rpName.get();
     }
 
-    /** Allowed origins; empty means "derive from the RP ID". */
+    /** Allowed origins (immutable); empty means "derive from the RP ID". */
     public Set<String> getOrigins() {
-        return origins == null ? Collections.emptySet() : Collections.unmodifiableSet(origins);
+        return origins.get();
     }
 }

@@ -7,8 +7,6 @@ import com.yubico.webauthn.data.ByteArray;
 import com.yubico.webauthn.data.PublicKeyCredentialDescriptor;
 import com.yubico.webauthn.data.exception.Base64UrlException;
 import org.apache.commons.lang3.StringUtils;
-import org.jahia.services.content.JCRNodeWrapper;
-import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.content.JCRTemplate;
 import org.jahia.services.content.decorator.JCRUserNode;
 import org.jahia.services.usermanager.JahiaUserManagerService;
@@ -132,10 +130,31 @@ public class WebAuthnCredentialStore implements CredentialRepository {
         });
     }
 
+    /** Data for a freshly-registered credential to persist (groups the fields so the store API
+     *  stays within the parameter-count limit). */
+    public static final class NewCredential {
+        private final String credentialIdB64;
+        private final String publicKeyCoseB64;
+        private final long signCount;
+        private final String userHandleB64;
+        private final List<String> transports;
+        private final String aaguid;
+        private final String nickname;
+
+        public NewCredential(String credentialIdB64, String publicKeyCoseB64, long signCount,
+                             String userHandleB64, List<String> transports, String aaguid, String nickname) {
+            this.credentialIdB64 = credentialIdB64;
+            this.publicKeyCoseB64 = publicKeyCoseB64;
+            this.signCount = signCount;
+            this.userHandleB64 = userHandleB64;
+            this.transports = transports;
+            this.aaguid = aaguid;
+            this.nickname = nickname;
+        }
+    }
+
     /** Persist a freshly-registered credential under the user node. */
-    public void addCredential(String userId, String credentialIdB64, String publicKeyCoseB64, long signCount,
-                              String userHandleB64, List<String> transports, String aaguid, String nickname)
-            throws RepositoryException {
+    public void addCredential(String userId, NewCredential c) throws RepositoryException {
         JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
             JCRUserNode user = userManagerService.lookupUser(userId, session);
             if (user == null) {
@@ -145,19 +164,19 @@ public class WebAuthnCredentialStore implements CredentialRepository {
                 user.addMixin(MIXIN_USER_SETTINGS);
             }
             Node cred = user.addNode("c-" + java.util.UUID.randomUUID(), NT_CREDENTIAL);
-            cred.setProperty(PROP_CREDENTIAL_ID, credentialIdB64);
-            cred.setProperty(PROP_PUBLIC_KEY_COSE, publicKeyCoseB64);
-            cred.setProperty(PROP_SIGN_COUNT, signCount);
-            if (userHandleB64 != null) {
-                cred.setProperty(PROP_USER_HANDLE, userHandleB64);
+            cred.setProperty(PROP_CREDENTIAL_ID, c.credentialIdB64);
+            cred.setProperty(PROP_PUBLIC_KEY_COSE, c.publicKeyCoseB64);
+            cred.setProperty(PROP_SIGN_COUNT, c.signCount);
+            if (c.userHandleB64 != null) {
+                cred.setProperty(PROP_USER_HANDLE, c.userHandleB64);
             }
-            if (transports != null && !transports.isEmpty()) {
-                cred.setProperty(PROP_TRANSPORTS, transports.toArray(new String[0]));
+            if (c.transports != null && !c.transports.isEmpty()) {
+                cred.setProperty(PROP_TRANSPORTS, c.transports.toArray(new String[0]));
             }
-            if (aaguid != null) {
-                cred.setProperty(PROP_AAGUID, aaguid);
+            if (c.aaguid != null) {
+                cred.setProperty(PROP_AAGUID, c.aaguid);
             }
-            cred.setProperty(PROP_NICKNAME, StringUtils.defaultIfBlank(nickname, "Passkey"));
+            cred.setProperty(PROP_NICKNAME, StringUtils.defaultIfBlank(c.nickname, "Passkey"));
             cred.setProperty(PROP_LAST_USED_AT, 0L);
             session.save();
             logger.info("WebAuthn credential registered for user {}", user.getName());
@@ -381,20 +400,16 @@ public class WebAuthnCredentialStore implements CredentialRepository {
                 NodeIterator it = user.getNodes();
                 while (it.hasNext()) {
                     Node n = it.nextNode();
-                    if (!n.isNodeType(NT_CREDENTIAL)) {
-                        continue;
+                    ByteArray id = n.isNodeType(NT_CREDENTIAL) ? parseB64(strProp(n, PROP_CREDENTIAL_ID)) : null;
+                    if (id != null) {
+                        PublicKeyCredentialDescriptor.PublicKeyCredentialDescriptorBuilder b =
+                                PublicKeyCredentialDescriptor.builder().id(id);
+                        Set<AuthenticatorTransport> transports = parseTransports(multiProp(n, PROP_TRANSPORTS));
+                        if (!transports.isEmpty()) {
+                            b.transports(transports);
+                        }
+                        out.add(b.build());
                     }
-                    ByteArray id = parseB64(strProp(n, PROP_CREDENTIAL_ID));
-                    if (id == null) {
-                        continue;
-                    }
-                    PublicKeyCredentialDescriptor.PublicKeyCredentialDescriptorBuilder b =
-                            PublicKeyCredentialDescriptor.builder().id(id);
-                    Set<AuthenticatorTransport> transports = parseTransports(multiProp(n, PROP_TRANSPORTS));
-                    if (!transports.isEmpty()) {
-                        b.transports(transports);
-                    }
-                    out.add(b.build());
                 }
                 return out;
             });

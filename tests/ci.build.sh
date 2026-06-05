@@ -24,6 +24,7 @@ UPA_API_DIR="../../user-password-authentication/api/target"
 UPA_UI_DIR="../../user-password-authentication/ui/target"
 UPA_TEMPLATE_SET_DIR="../../user-password-authentication/test-modules/template-set/target"
 TOTP_TARGET_DIR="../totp/target"
+WEBAUTHN_TARGET_DIR="../webauthn/target"
 TOTP_LOGIN_UI_DIR="../login-ui/target"
 
 echo "== Staging UPA api JAR =="
@@ -52,6 +53,15 @@ if [[ -z "${TOTP_JAR}" ]]; then
 fi
 cp "${TOTP_JAR}" "${ARTIFACTS_DIR}/"
 echo "  staged: $(basename "${TOTP_JAR}")"
+
+echo "== Staging WebAuthn factor JAR =="
+WEBAUTHN_JAR=$(ls -1 "${WEBAUTHN_TARGET_DIR}"/mfa-factors-webauthn-*.jar 2>/dev/null | grep -v sources | grep -v javadoc | head -n1 || true)
+if [[ -z "${WEBAUTHN_JAR}" ]]; then
+  echo "ERROR: Could not find WebAuthn factor JAR under ${WEBAUTHN_TARGET_DIR}. Run 'mvn package' on mfa-factors-webauthn first."
+  exit 1
+fi
+cp "${WEBAUTHN_JAR}" "${ARTIFACTS_DIR}/"
+echo "  staged: $(basename "${WEBAUTHN_JAR}")"
 
 echo "== Staging UPA template-set test module JAR =="
 UPA_TEMPLATE_SET_JAR=$(ls -1 "${UPA_TEMPLATE_SET_DIR}"/user-password-authentication-template-set-test-module-*.jar 2>/dev/null | grep -v sources | grep -v javadoc | head -n1 || true)

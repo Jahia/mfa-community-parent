@@ -198,7 +198,10 @@ public class WebAuthnService {
             if (!result.isSuccess()) {
                 return new AssertionOutcome(false, null, 0L);
             }
-            return new AssertionOutcome(true, result.getCredentialId().getBase64Url(), result.getSignatureCount());
+            // getCredential() (not the deprecated getCredentialId()/getSignatureCount() on the result).
+            return new AssertionOutcome(true,
+                    result.getCredential().getCredentialId().getBase64Url(),
+                    result.getSignatureCount());
         } catch (AssertionFailedException e) {
             logger.debug("WebAuthn assertion failed: {}", e.getMessage());
             return new AssertionOutcome(false, null, 0L);

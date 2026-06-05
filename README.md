@@ -1,12 +1,18 @@
-# UPA - TOTP factor
+# MFA factors
 
-Third-party Jahia module adding a TOTP (RFC 6238 / Google Authenticator) factor to the
+Third-party Jahia modules adding extra second factors to the
 [User Password Authentication (UPA)](https://github.com/Jahia/user-password-authentication)
-Multi-Factor Authentication framework. Once installed, end users can enroll an authenticator
-app, log in with a 6-digit time-based code, and fall back to one-shot backup codes.
+Multi-Factor Authentication framework. The reactor builds a family of `mfa-factors-*` modules
+that share one sign-in UI:
 
-Compatible with Google Authenticator, Authy, 1Password, FreeOTP and any other RFC 6238
-compliant authenticator.
+| Module | artifactId | What it adds |
+| --- | --- | --- |
+| `totp/` | `mfa-factors-totp` | TOTP (RFC 6238) factor: authenticator-app codes + one-shot backup codes; per-site policy, `/cms/login` gate, login/logout URL provider. |
+| `webauthn/` | `mfa-factors-webauthn` | WebAuthn / FIDO2 factor: passkeys, security keys, platform authenticators (fingerprint/face). Phishing-resistant, origin-bound. Built on `com.yubico:webauthn-server-core` (embedded). |
+| `login-ui/` | `mfa-factors-login-ui` | Shared JS-SDK sign-in UI: username/password → factor chooser → TOTP / WebAuthn / email verification. |
+
+Each factor ships its own self-service dashboard panel and per-site administration page
+(enable / enforce / grace period / group scoping, user reset, audit + enrollment report).
 
 ## Requirements
 
@@ -17,16 +23,21 @@ compliant authenticator.
 
 ## Installation
 
-1. Build the project (`mvn clean install` at the repo root builds both modules):
-   - `totp/target/mfa-factors-totp-<version>.jar` &mdash; the OSGi factor bundle.
+1. Build the project (`mvn clean install` at the repo root builds all modules):
+   - `totp/target/mfa-factors-totp-<version>.jar` &mdash; the TOTP OSGi factor bundle.
+   - `webauthn/target/mfa-factors-webauthn-<version>.jar` &mdash; the WebAuthn OSGi factor
+     bundle (a ~6&nbsp;MB fat bundle; it embeds the yubico WebAuthn library).
    - `login-ui/target/mfa-factors-login-ui-<version>.tgz` &mdash; the sign-in UI (optional;
      install only if you want the bundled login template). The `.tgz` is an npm/JS-SDK
      package and must be installed via the Jahia provisioning API or the Modules UI &mdash;
      it is **not** picked up by the `digital-factory-data/modules/` hot-deploy folder.
-2. Drop the bundle JAR into Jahia's `digital-factory-data/modules/` directory, or upload it
-   from the Jahia administration UI (*Server settings* &rarr; *Modules*).
-3. Make sure the `user-password-authentication` module is started first; this module
-   declares it as a hard dependency (`jahia-depends`).
+2. Drop the bundle JAR(s) into Jahia's `digital-factory-data/modules/` directory, or upload them
+   from the Jahia administration UI (*Server settings* &rarr; *Modules*). Install only the
+   factors you want.
+3. Make sure the `user-password-authentication` module is started first; these modules
+   declare it as a hard dependency (`jahia-depends`).
+4. Enable the factors you installed in `org.jahia.modules.upa` → `mfaEnabledFactors`
+   (e.g. `totp`, `webauthn`), then enable them per site from each factor's administration page.
 
 ## Configuration
 
@@ -88,6 +99,33 @@ soon as one site enforces enrollment — set the whitelist first, then flip
 
 Tunable security constants (`DRIFT_WINDOWS`, `TIME_STEP_SECONDS`, `DIGITS`, PBKDF2
 iterations, ...) live in `TotpService` and `BackupCodes`. To change them, fork and rebuild.
+
+## WebAuthn factor
+
+The `mfa-factors-webauthn` bundle adds a phishing-resistant, origin-bound second factor:
+passkeys, security keys (USB/NFC/BLE) and platform authenticators (Touch ID / Windows Hello).
+Users register one or more authenticators from the dashboard (*Security keys & passkeys*);
+at login the browser performs an assertion ceremony — the private key never leaves the device,
+and the assertion is bound to the site's origin so it cannot be relayed by a phishing proxy.
+
+It ships its own per-site administration page (enable / enforce / grace / groups, user reset,
+audit + registration report) mirroring TOTP, and credentials are stored as
+`upaWebauthn:credential` child nodes on the user. Clone detection is enforced via the
+authenticator signature counter, persisted atomically on each assertion.
+
+Configuration (Karaf PID `org.jahia.modules.webauthn`):
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `rpId` | `localhost` | The WebAuthn **Relying Party ID** — a registrable suffix of the browsing origin's host (host only, no scheme/port), e.g. `example.com`. Credentials are scoped to it. |
+| `rpName` | `Jahia` | Human-readable site name shown by the authenticator during registration. |
+| `origins` | _(derived)_ | Indexed list (`origins.0=…`) of full allowed origins (`scheme://host[:port]`). Leave unset to derive from `rpId`. |
+
+> **WebAuthn requires a secure context.** Ceremonies run only over **HTTPS**, except on
+> `http://localhost`. Set `rpId`/`origins` to match the host users actually browse (e.g.
+> `rpId=example.com`, `origins.0=https://example.com`); a mismatch makes the browser refuse the
+> ceremony. Behind a reverse proxy, Tomcat must also see the real scheme/host (configure
+> `RemoteIpValve`) so the server-side origin check agrees with the browser.
 
 ## GraphQL API
 
