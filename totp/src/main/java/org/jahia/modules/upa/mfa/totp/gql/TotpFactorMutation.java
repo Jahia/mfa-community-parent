@@ -428,13 +428,29 @@ public class TotpFactorMutation {
     public Result verify(
             @GraphQLName("code") @GraphQLNonNull String code,
             DataFetchingEnvironment environment) {
-        if (!isAcceptableCodeLength(code)) {
+        HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
+        if (!isAcceptableCodeLength(code) && !isPreparationSkipped(request)) {
             throw new DataFetchingException(ERROR_INVALID_CODE);
         }
-        HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
         HttpServletResponse response = ContextUtil.getHttpServletResponse(environment.getGraphQlContext());
         MfaSession session = mfaService.verifyFactor(FACTOR_TYPE, code, request, response);
         return new Result(session);
+    }
+
+    /**
+     * The pick-one drain submits an EMPTY code for a preparation the provider marked skipped
+     * (enforcement satisfied by another factor, site disabled, …). Let it through to the
+     * standard verify path — {@code TotpFactorProvider.verify} accepts a skipped preparation
+     * without consuming a rate-limit attempt. Everything else keeps failing fast on length,
+     * shielding the rate limiter from garbage submissions.
+     */
+    private boolean isPreparationSkipped(HttpServletRequest request) {
+        MfaSession session = mfaService.getMfaSession(request);
+        if (session == null) {
+            return false;
+        }
+        Object prep = session.getOrCreateFactorState(FACTOR_TYPE).getPreparationResult();
+        return prep instanceof TotpPreparationResult && ((TotpPreparationResult) prep).isSkipped();
     }
 
     @GraphQLField
