@@ -60,7 +60,6 @@ public class WebAuthnFactorMutation {
     private static final String ERROR_NO_REGISTRATION_STATE = "factor.webauthn.no_registration_state";
     private static final String ERROR_REGISTRATION_FAILED = "factor.webauthn.registration_failed";
     private static final String ERROR_LOCKED_OUT = "factor.webauthn.locked_out";
-    private static final String ERROR_INVALID_GRACE_DAYS = "factor.webauthn.invalid_grace_days";
     private static final String OUTCOME_SUCCESS = "success";
 
     /** HTTP session attribute holding the transient registration challenge (creation options JSON). */
@@ -242,27 +241,22 @@ public class WebAuthnFactorMutation {
 
     @GraphQLField
     @GraphQLName("setSiteSettings")
-    @GraphQLDescription("Set the per-site WebAuthn policy. graceDays must be 0..365. Caller must be a site admin.")
+    @GraphQLDescription("Set the per-site WebAuthn policy (enabled / enabledGroups). Enforcement is global "
+            + "(org.jahia.modules.mfa.extensions). Caller must be a site admin.")
     public WebAuthnSiteSettingsResult setSiteSettings(
             @GraphQLName("siteKey") @GraphQLNonNull String siteKey,
             @GraphQLName("enabled") @GraphQLNonNull Boolean enabled,
-            @GraphQLName("enforced") @GraphQLNonNull Boolean enforced,
-            @GraphQLName("graceDays") Integer graceDays,
             @GraphQLName("enabledGroups") List<String> enabledGroups) {
         if (StringUtils.isBlank(siteKey)) {
             throw new DataFetchingException("siteKey must not be blank");
         }
-        long grace = graceDays == null ? 0L : graceDays;
-        if (grace < 0L || grace > WebAuthnSiteSettingsStore.MAX_GRACE_DAYS) {
-            throw new DataFetchingException(ERROR_INVALID_GRACE_DAYS);
-        }
         JCRSessionWrapper session = WebAuthnAdminAccess.requireSiteAdmin(siteKey);
         try {
             siteSettingsStore.save(session, siteKey, new WebAuthnSiteSettingsStore.WebAuthnSiteSettings(
-                    enabled, enforced, grace, enabledGroups));
+                    enabled, enabledGroups));
             auditLog.recordEvent("setSiteSettings", OUTCOME_SUCCESS, currentUserName(), siteKey,
-                    "enabled=" + enabled + ", enforced=" + enforced + ", graceDays=" + grace);
-            return new WebAuthnSiteSettingsResult(siteKey, enabled, enforced, grace, enabledGroups);
+                    "enabled=" + enabled);
+            return new WebAuthnSiteSettingsResult(siteKey, enabled, enabledGroups);
         } catch (RepositoryException e) {
             logger.warn("Failed to save WebAuthn site settings for {}: {}", siteKey, e.getMessage());
             throw new DataFetchingException(ERROR_INTERNAL);

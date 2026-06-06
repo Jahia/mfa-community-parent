@@ -43,7 +43,7 @@
   "siteSettings": {
     "menuLabel": "Two-factor authentication",
     "title": "Two-factor authentication \u2014 {{siteKey}}",
-    "description": "Choose whether two-factor authentication (TOTP) is active on this site and whether all users must enrol.",
+    "description": "Choose whether two-factor authentication (TOTP) is active on this site and which groups it applies to. Whether enrollment is REQUIRED is a platform-wide setting (enforcedFactors in the org.jahia.modules.mfa.extensions configuration).",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
     "saving": "Saving\u2026",
@@ -51,14 +51,6 @@
     "enabled": {
       "label": "Enable TOTP MFA on this site",
       "help": "When off, users of this site sign in without a second factor. When on, enrolled users are prompted for an authenticator code at login."
-    },
-    "enforced": {
-      "label": "Enforce enrollment",
-      "help": "When on, users who have not yet enrolled in TOTP are redirected to the enrollment page at login (subject to the grace period) and cannot complete sign-in until they enrol."
-    },
-    "graceDays": {
-      "label": "Grace period (days)",
-      "help": "When enforcing, the number of days a newly-prompted user may still sign in before enrollment becomes mandatory. 0 = immediate, maximum 365."
     },
     "groups": {
       "label": "Restrict to groups (optional)",
@@ -90,7 +82,6 @@
       "permissionDenied": "You don't have permission to change these settings.",
       "notAuthenticated": "Please sign in again to change these settings.",
       "invalidUrl": "The login/logout URL must be a relative path starting with / (e.g. /sites/mySite/login.html). Absolute or external URLs are not allowed.",
-      "invalidGraceDays": "The grace period must be between 0 and 365 days.",
       "generic": "Could not save the settings. Please try again."
     }
   },

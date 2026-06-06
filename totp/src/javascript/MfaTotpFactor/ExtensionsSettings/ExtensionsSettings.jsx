@@ -19,7 +19,7 @@ const ExtensionsSettings = () => {
     const [loginUrl, setLoginUrl] = useState('');
     const [logoutUrl, setLogoutUrl] = useState('');
     // Policy snapshot (not edited here): round-tripped so saving URLs never alters the policy.
-    const [policy, setPolicy] = useState({enabled: false, enforced: false, graceDays: 0, enabledGroups: []});
+    const [policy, setPolicy] = useState({enabled: false, enabledGroups: []});
     const [savedAt, setSavedAt] = useState(null);
     const [errorKey, setErrorKey] = useState(null);
 
@@ -36,8 +36,6 @@ const ExtensionsSettings = () => {
             setLogoutUrl(s.logoutUrl || '');
             setPolicy({
                 enabled: Boolean(s.enabled),
-                enforced: Boolean(s.enforced),
-                graceDays: Number(s.graceDays) || 0,
                 enabledGroups: s.enabledGroups || []
             });
         }
@@ -58,8 +56,6 @@ const ExtensionsSettings = () => {
             variables: {
                 siteKey,
                 enabled: policy.enabled,
-                enforced: policy.enforced,
-                graceDays: policy.graceDays,
                 enabledGroups: policy.enabledGroups,
                 loginUrl: loginUrl.trim() || null,
                 logoutUrl: logoutUrl.trim() || null

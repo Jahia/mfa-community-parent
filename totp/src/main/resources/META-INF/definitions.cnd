@@ -23,10 +23,12 @@
  - upaTotp:graceStartedAt (long) = '0' autocreated protected
 
 // Per-site policy. `enabledGroups` (empty = all users) scopes the policy to specific
-// group members. `graceDays` (0 = immediate) defers enforcement for newly-prompted users.
-// `loginUrl`/`logoutUrl` let each site point its login/logout at a custom page (surfaced to the
-// shared MfaLoginLogoutProvider via the MfaSiteProvider SPI); empty falls back to the global
-// org.jahia.modules.mfa.extensions config.
+// group members. `loginUrl`/`logoutUrl` let each site point its login/logout at a custom page
+// (surfaced to the shared MfaLoginLogoutProvider via the MfaSiteProvider SPI); empty falls back
+// to the global org.jahia.modules.mfa.extensions config.
+// DEPRECATED: `enforced`/`graceDays` are retained for repository compatibility only — enforcement
+// (and its grace window) is now global (PID org.jahia.modules.mfa.extensions); these properties
+// are no longer read or written.
 [upaTotp:siteSettings] mixin
  - upaTotp:enabled (boolean) = false autocreated
  - upaTotp:enforced (boolean) = false autocreated

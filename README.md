@@ -19,8 +19,8 @@ Each factor ships its own self-service dashboard panel. Site administration grou
 under one **MFA Community** entry:
 
 - **Extensions** — the per-site login/logout routing consumed by the shared login provider;
-- **Two-factor authentication** — TOTP policy (enable / enforce / grace period / group scoping,
-  user reset);
+- **Two-factor authentication** — TOTP policy (enable / group scoping, user reset; enforcement
+  is global — see `enforcedFactors`);
 - **Security and passkeys** — WebAuthn policy (same shape);
 - **Audit & reporting** — every installed factor's audit log and enrollment/registration report
   on a single page (each factor contributes its section; the page shows whatever is installed).
@@ -98,21 +98,35 @@ pre-existing unsafe value is ignored at resolve time — a site administrator ca
 the login redirect off-site. The global `.cfg` values are operator-controlled (filesystem
 trust level) and are not restricted, so an external SSO portal remains possible globally.
 
-The enrollment **grace period** is bounded to **0–365 days** (an unbounded value would
-silently disable enforcement forever).
+### Global enforcement (`enforcedFactors` / `graceDays`)
+
+Enforcement is **platform-wide**: `enforcedFactors` (PID `org.jahia.modules.mfa.extensions`)
+lists the factor types a user must satisfy — a user needs **at least one** of them configured
+and verifies **one** of them at sign-in (the chooser lets them pick; the others skip). A user
+with **none** configured may still sign in during the global `graceDays` window (0–365, clamped;
+tracked per user from their first enforced sign-in attempt); after that, the login page walks
+them through **inline enrollment** (TOTP QR + code, or passkey registration) and signs them in
+in the same flow. Empty `enforcedFactors` (the default) = no enforcement.
+
+> **Migration note:** the per-site *Enforce enrollment* checkbox and *grace period* were removed
+> from both factor administration pages. Existing per-site `upaTotp:enforced` /
+> `upaWebauthn:enforced` / `…graceDays` values become inert after upgrade (the CND retains the
+> properties; nothing reads them). Operators opt in by setting `enforcedFactors` globally —
+> per-site `enabled` + group scoping still applies.
 
 ### The `/cms/login` gate
 
 Jahia's legacy `/cms/login` endpoint authenticates with username/password only — it never
-consults MFA factors. On a site that **enforces** enrollment for any factor it is therefore a
-complete second-factor bypass. `MfaLoginGateFilter` (in the extensions bundle; a Jahia
-`AbstractServletFilter` running before the authentication valve, so blocked requests never get a
-session) closes it. It is factor-agnostic — it aggregates over every factor's `MfaSiteProvider`:
+consults MFA factors. While enforcement is active it is therefore a complete second-factor
+bypass. `MfaLoginGateFilter` (in the extensions bundle; a Jahia `AbstractServletFilter` running
+before the authentication valve, so blocked requests never get a session) closes it. It is
+factor-agnostic — it intersects the global policy with every factor's `MfaSiteProvider`:
 
+- nothing is gated while `enforcedFactors` is empty;
 - requests carrying a site context (`?site=<key>` parameter or the `siteKey` request
-  attribute) are gated when **that site** has **any** factor enabled + enforced;
-- requests with no site context — the common case — are gated when **any** site enforces
-  enrollment for **any** factor (`/cms/login` authenticates globally, so one enforcing site is enough);
+  attribute) are gated when **that site** has one of the **enforced** factors **enabled**;
+- requests with no site context — the common case — are gated when **any** site has an
+  enforced factor enabled (`/cms/login` authenticates globally, so one such site is enough);
 - gated requests get **HTTP 403** unless the client IP matches `loginGate.ipWhitelist`,
   keeping an emergency/back-office door (e.g. your VPN range).
 
@@ -135,8 +149,8 @@ at login the browser performs an assertion ceremony — the private key never le
 and the assertion is bound to the site's origin so it cannot be relayed by a phishing proxy.
 
 It ships its own per-site administration page (*MFA Community → Security and passkeys*: enable /
-enforce / grace / groups, user reset) mirroring TOTP, contributes its registration report to the
-shared *Audit & reporting* page, and credentials are stored as
+groups, user reset; enforcement is global — see `enforcedFactors`) mirroring TOTP, contributes
+its registration report to the shared *Audit & reporting* page, and credentials are stored as
 `upaWebauthn:credential` child nodes on the user. Clone detection is enforced via the
 authenticator signature counter, persisted atomically on each assertion.
 

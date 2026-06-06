@@ -16,8 +16,11 @@ import java.util.List;
 
 /**
  * Reads and writes the {@code upaWebauthn:siteSettings} mixin on site nodes — the per-site
- * WebAuthn policy (enabled / enforced / graceDays / enabledGroups). Mirrors
- * {@code TotpSiteSettingsStore} (without the login/logout URL fields, which are TOTP-specific).
+ * WebAuthn policy (enabled / enabledGroups). Mirrors {@code TotpSiteSettingsStore} (without the
+ * login/logout URL fields, which are TOTP-specific). Enforcement (and its grace window) is
+ * GLOBAL — see the extensions {@code MfaGlobalPolicy}; the legacy per-site
+ * {@code upaWebauthn:enforced}/{@code upaWebauthn:graceDays} properties remain in the CND for
+ * repository compatibility but are no longer read or written.
  */
 @Component(service = WebAuthnSiteSettingsStore.class, immediate = true)
 public class WebAuthnSiteSettingsStore {
@@ -26,33 +29,23 @@ public class WebAuthnSiteSettingsStore {
 
     public static final String MIXIN_SITE_SETTINGS = "upaWebauthn:siteSettings";
     public static final String PROP_ENABLED = "upaWebauthn:enabled";
-    public static final String PROP_ENFORCED = "upaWebauthn:enforced";
-    public static final String PROP_GRACE_DAYS = "upaWebauthn:graceDays";
     public static final String PROP_ENABLED_GROUPS = "upaWebauthn:enabledGroups";
-
-    public static final long MAX_GRACE_DAYS = 365L;
 
     /** Snapshot of the WebAuthn settings for a site. */
     public static final class WebAuthnSiteSettings {
         public static final WebAuthnSiteSettings DISABLED =
-                new WebAuthnSiteSettings(false, false, 0L, Collections.emptyList());
+                new WebAuthnSiteSettings(false, Collections.emptyList());
 
         private final boolean enabled;
-        private final boolean enforced;
-        private final long graceDays;
         private final List<String> enabledGroups;
 
-        public WebAuthnSiteSettings(boolean enabled, boolean enforced, long graceDays, List<String> enabledGroups) {
+        public WebAuthnSiteSettings(boolean enabled, List<String> enabledGroups) {
             this.enabled = enabled;
-            this.enforced = enforced;
-            this.graceDays = graceDays;
             this.enabledGroups = enabledGroups == null
                     ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(enabledGroups));
         }
 
         public boolean isEnabled()  { return enabled; }
-        public boolean isEnforced() { return enforced; }
-        public long getGraceDays()  { return graceDays; }
         public List<String> getEnabledGroups() { return enabledGroups; }
     }
 
@@ -71,10 +64,7 @@ public class WebAuthnSiteSettingsStore {
                 return WebAuthnSiteSettings.DISABLED;
             }
             boolean enabled = siteNode.hasProperty(PROP_ENABLED) && siteNode.getProperty(PROP_ENABLED).getBoolean();
-            boolean enforced = siteNode.hasProperty(PROP_ENFORCED) && siteNode.getProperty(PROP_ENFORCED).getBoolean();
-            long graceDays = siteNode.hasProperty(PROP_GRACE_DAYS)
-                    ? siteNode.getProperty(PROP_GRACE_DAYS).getLong() : 0L;
-            return new WebAuthnSiteSettings(enabled, enforced, graceDays, readGroups(siteNode));
+            return new WebAuthnSiteSettings(enabled, readGroups(siteNode));
         });
     }
 
@@ -109,8 +99,8 @@ public class WebAuthnSiteSettingsStore {
     }
 
     /**
-     * Persist the settings via the caller's (admin) session. graceDays is clamped to
-     * {@code [0, MAX_GRACE_DAYS]}. The caller MUST have validated site-admin access.
+     * Persist the settings via the caller's (admin) session. The caller MUST have validated
+     * site-admin access.
      */
     public void save(JCRSessionWrapper session, String siteKey, WebAuthnSiteSettings settings)
             throws RepositoryException {
@@ -122,8 +112,6 @@ public class WebAuthnSiteSettingsStore {
             siteNode.addMixin(MIXIN_SITE_SETTINGS);
         }
         siteNode.setProperty(PROP_ENABLED, settings.isEnabled());
-        siteNode.setProperty(PROP_ENFORCED, settings.isEnforced());
-        siteNode.setProperty(PROP_GRACE_DAYS, Math.min(Math.max(0L, settings.getGraceDays()), MAX_GRACE_DAYS));
         List<String> cleaned = new ArrayList<>();
         for (String g : settings.getEnabledGroups()) {
             if (g != null && !g.trim().isEmpty()) {
@@ -132,7 +120,7 @@ public class WebAuthnSiteSettingsStore {
         }
         siteNode.setProperty(PROP_ENABLED_GROUPS, cleaned.toArray(new String[0]));
         session.save();
-        logger.info("WebAuthn site settings saved for {}: enabled={}, enforced={}, graceDays={}, groups={}",
-                siteKey, settings.isEnabled(), settings.isEnforced(), settings.getGraceDays(), cleaned);
+        logger.info("WebAuthn site settings saved for {}: enabled={}, groups={}",
+                siteKey, settings.isEnabled(), cleaned);
     }
 }

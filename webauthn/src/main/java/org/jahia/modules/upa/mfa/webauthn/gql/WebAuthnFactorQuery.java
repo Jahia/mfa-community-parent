@@ -79,8 +79,7 @@ public class WebAuthnFactorQuery {
     public WebAuthnSiteSettingsResult siteSettings(@GraphQLName("siteKey") @GraphQLNonNull String siteKey) {
         try {
             WebAuthnSiteSettingsStore.WebAuthnSiteSettings s = siteSettingsStore.load(siteKey);
-            return new WebAuthnSiteSettingsResult(siteKey, s.isEnabled(), s.isEnforced(),
-                    s.getGraceDays(), s.getEnabledGroups());
+            return new WebAuthnSiteSettingsResult(siteKey, s.isEnabled(), s.getEnabledGroups());
         } catch (RepositoryException e) {
             throw new DataFetchingException(ERROR_INTERNAL);
         }

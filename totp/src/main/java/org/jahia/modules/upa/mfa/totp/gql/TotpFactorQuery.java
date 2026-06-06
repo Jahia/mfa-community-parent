@@ -79,8 +79,8 @@ public class TotpFactorQuery {
     public TotpSiteSettingsResult siteSettings(@GraphQLName("siteKey") @GraphQLNonNull String siteKey) {
         try {
             TotpSiteSettingsStore.TotpSiteSettings s = siteSettingsStore.load(siteKey);
-            return new TotpSiteSettingsResult(siteKey, s.isEnabled(), s.isEnforced(),
-                    s.getGraceDays(), s.getEnabledGroups(), s.getLoginUrl(), s.getLogoutUrl());
+            return new TotpSiteSettingsResult(siteKey, s.isEnabled(),
+                    s.getEnabledGroups(), s.getLoginUrl(), s.getLogoutUrl());
         } catch (RepositoryException e) {
             logger.warn("Failed to load TOTP site settings for {}: {}", siteKey, e.getMessage());
             throw new DataFetchingException(ERROR_INTERNAL);

@@ -6,8 +6,6 @@ export const SiteSettingsQuery = gql`
             siteSettings(siteKey: $siteKey) {
                 siteKey
                 enabled
-                enforced
-                graceDays
                 enabledGroups
             }
         }
@@ -18,8 +16,6 @@ export const SetSiteSettingsMutation = gql`
     mutation MfaWebauthnSetSiteSettings(
         $siteKey: String!
         $enabled: Boolean!
-        $enforced: Boolean!
-        $graceDays: Int
         $enabledGroups: [String]
     ) {
         upa {
@@ -28,14 +24,10 @@ export const SetSiteSettingsMutation = gql`
                     setSiteSettings(
                         siteKey: $siteKey
                         enabled: $enabled
-                        enforced: $enforced
-                        graceDays: $graceDays
                         enabledGroups: $enabledGroups
                     ) {
                         siteKey
                         enabled
-                        enforced
-                        graceDays
                         enabledGroups
                     }
                 }

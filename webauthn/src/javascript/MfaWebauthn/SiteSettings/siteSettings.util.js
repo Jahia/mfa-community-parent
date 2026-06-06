@@ -24,9 +24,5 @@ export function mapAdminError(err) {
         return 'siteSettings.errors.notAuthenticated';
     }
 
-    if (msg.indexOf('invalid_grace_days') !== -1) {
-        return 'siteSettings.errors.invalidGraceDays';
-    }
-
     return 'siteSettings.errors.generic';
 }

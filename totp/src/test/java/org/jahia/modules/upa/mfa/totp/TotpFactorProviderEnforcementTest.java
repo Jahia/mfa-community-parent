@@ -226,7 +226,7 @@ public class TotpFactorProviderEnforcementTest {
 
         @Override
         public TotpSiteSettings load(String siteKey) {
-            return new TotpSiteSettings(enabled, false, 0L, Collections.emptyList(), null, null);
+            return new TotpSiteSettings(enabled, Collections.emptyList(), null, null);
         }
     }
 }

@@ -12,8 +12,6 @@ const SiteSettings = () => {
     const siteKey = resolveSiteKey();
 
     const [enabled, setEnabled] = useState(false);
-    const [enforced, setEnforced] = useState(false);
-    const [graceDays, setGraceDays] = useState(0);
     const [groups, setGroups] = useState('');
     const [savedAt, setSavedAt] = useState(null);
     const [errorKey, setErrorKey] = useState(null);
@@ -28,8 +26,6 @@ const SiteSettings = () => {
         const s = data && data.mfaWebauthn && data.mfaWebauthn.siteSettings;
         if (s) {
             setEnabled(Boolean(s.enabled));
-            setEnforced(Boolean(s.enforced));
-            setGraceDays(Number(s.graceDays) || 0);
             setGroups((s.enabledGroups || []).join(', '));
         }
     }, [data]);
@@ -50,8 +46,6 @@ const SiteSettings = () => {
             variables: {
                 siteKey,
                 enabled,
-                enforced: enabled ? enforced : false,
-                graceDays: enabled && enforced ? Math.max(0, Number(graceDays) || 0) : 0,
                 enabledGroups: enabled ? groupList : []
             }
         });
@@ -100,25 +94,6 @@ const SiteSettings = () => {
                                            label={t('siteSettings.enabled.label')}
                                            help={t('siteSettings.enabled.help')}
                                            onChange={setEnabled}/>
-
-                            <CheckboxField id="webauthn-site-enforced"
-                                           testid="webauthn-site-enforced-toggle"
-                                           checked={enabled && enforced}
-                                           disabled={!enabled}
-                                           label={t('siteSettings.enforced.label')}
-                                           help={t('siteSettings.enforced.help')}
-                                           onChange={setEnforced}/>
-
-                            <TextField id="webauthn-site-grace"
-                                       testid="webauthn-site-grace-input"
-                                       type="number"
-                                       value={graceDays}
-                                       disabled={!enabled || !enforced}
-                                       min={0}
-                                       max={365}
-                                       label={t('siteSettings.graceDays.label')}
-                                       help={t('siteSettings.graceDays.help')}
-                                       onChange={v => setGraceDays(v)}/>
 
                             <TextField id="webauthn-site-groups"
                                        testid="webauthn-site-groups-input"

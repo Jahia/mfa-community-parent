@@ -6,8 +6,6 @@ export const SiteSettingsQuery = gql`
             siteSettings(siteKey: $siteKey) {
                 siteKey
                 enabled
-                enforced
-                graceDays
                 enabledGroups
                 loginUrl
                 logoutUrl
@@ -20,8 +18,6 @@ export const SetSiteSettingsMutation = gql`
     mutation MfaTotpSetSiteSettings(
         $siteKey: String!
         $enabled: Boolean!
-        $enforced: Boolean!
-        $graceDays: Int
         $enabledGroups: [String]
         $loginUrl: String
         $logoutUrl: String
@@ -32,16 +28,12 @@ export const SetSiteSettingsMutation = gql`
                     setSiteSettings(
                         siteKey: $siteKey
                         enabled: $enabled
-                        enforced: $enforced
-                        graceDays: $graceDays
                         enabledGroups: $enabledGroups
                         loginUrl: $loginUrl
                         logoutUrl: $logoutUrl
                     ) {
                         siteKey
                         enabled
-                        enforced
-                        graceDays
                         enabledGroups
                         loginUrl
                         logoutUrl

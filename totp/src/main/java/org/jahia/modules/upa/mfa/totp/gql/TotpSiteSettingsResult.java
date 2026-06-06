@@ -9,24 +9,20 @@ import java.util.Collections;
 import java.util.List;
 
 @GraphQLName("MfaTotpSiteSettingsResult")
-@GraphQLDescription("Per-site TOTP policy: active flag, enforcement, grace period and group scoping.")
+@GraphQLDescription("Per-site TOTP policy: active flag, group scoping and login/logout routing. "
+        + "Enforcement is global — see the org.jahia.modules.mfa.extensions configuration.")
 public class TotpSiteSettingsResult {
 
     private final String siteKey;
     private final boolean enabled;
-    private final boolean enforced;
-    private final long graceDays;
     private final List<String> enabledGroups;
     private final String loginUrl;
     private final String logoutUrl;
 
-    public TotpSiteSettingsResult(String siteKey, boolean enabled, boolean enforced,
-                                  long graceDays, List<String> enabledGroups,
+    public TotpSiteSettingsResult(String siteKey, boolean enabled, List<String> enabledGroups,
                                   String loginUrl, String logoutUrl) {
         this.siteKey = siteKey;
         this.enabled = enabled;
-        this.enforced = enforced;
-        this.graceDays = graceDays;
         this.enabledGroups = enabledGroups == null
                 ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(enabledGroups));
         this.loginUrl = loginUrl;
@@ -44,20 +40,6 @@ public class TotpSiteSettingsResult {
     @GraphQLDescription("True if TOTP MFA is active on this site. False means the factor is skipped at login.")
     public boolean isEnabled() {
         return enabled;
-    }
-
-    @GraphQLField
-    @GraphQLName("enforced")
-    @GraphQLDescription("True if enrollment is mandatory; non-enrolled users are redirected to enrollment (subject to the grace period).")
-    public boolean isEnforced() {
-        return enforced;
-    }
-
-    @GraphQLField
-    @GraphQLName("graceDays")
-    @GraphQLDescription("When enforcing, the number of days a newly-prompted, not-yet-enrolled user may still sign in (0 = immediate).")
-    public long getGraceDays() {
-        return graceDays;
     }
 
     @GraphQLField

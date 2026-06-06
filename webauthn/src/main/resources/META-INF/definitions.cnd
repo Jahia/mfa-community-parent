@@ -27,6 +27,9 @@
  - upaWebauthn:windowStart (long) = '0' autocreated protected
 
 // Per-site WebAuthn policy — mirrors upaTotp:siteSettings.
+// DEPRECATED: `enforced`/`graceDays` are retained for repository compatibility only — enforcement
+// (and its grace window) is now global (PID org.jahia.modules.mfa.extensions); these properties
+// are no longer read or written.
 [upaWebauthn:siteSettings] mixin
  - upaWebauthn:enabled (boolean) = false autocreated
  - upaWebauthn:enforced (boolean) = false autocreated

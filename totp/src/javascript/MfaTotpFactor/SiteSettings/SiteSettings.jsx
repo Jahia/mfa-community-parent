@@ -12,8 +12,6 @@ const SiteSettings = () => {
     const siteKey = resolveSiteKey();
 
     const [enabled, setEnabled] = useState(false);
-    const [enforced, setEnforced] = useState(false);
-    const [graceDays, setGraceDays] = useState(0);
     const [groups, setGroups] = useState('');
     // Login/logout URLs are edited on the "MFA Community > Extensions" page; they are loaded and
     // round-tripped here unchanged because the mutation persists the full site settings state.
@@ -32,8 +30,6 @@ const SiteSettings = () => {
         const s = data && data.mfaTotp && data.mfaTotp.siteSettings;
         if (s) {
             setEnabled(Boolean(s.enabled));
-            setEnforced(Boolean(s.enforced));
-            setGraceDays(Number(s.graceDays) || 0);
             setGroups((s.enabledGroups || []).join(', '));
             setLoginUrl(s.loginUrl || '');
             setLogoutUrl(s.logoutUrl || '');
@@ -56,8 +52,6 @@ const SiteSettings = () => {
             variables: {
                 siteKey,
                 enabled,
-                enforced: enabled ? enforced : false,
-                graceDays: enabled && enforced ? Math.max(0, Number(graceDays) || 0) : 0,
                 enabledGroups: enabled ? groupList : [],
                 loginUrl: loginUrl.trim() || null,
                 logoutUrl: logoutUrl.trim() || null
@@ -108,25 +102,6 @@ const SiteSettings = () => {
                                            label={t('siteSettings.enabled.label')}
                                            help={t('siteSettings.enabled.help')}
                                            onChange={setEnabled}/>
-
-                            <CheckboxField id="totp-site-enforced"
-                                           testid="site-enforced-toggle"
-                                           checked={enabled && enforced}
-                                           disabled={!enabled}
-                                           label={t('siteSettings.enforced.label')}
-                                           help={t('siteSettings.enforced.help')}
-                                           onChange={setEnforced}/>
-
-                            <TextField id="totp-site-grace"
-                                       testid="site-grace-input"
-                                       type="number"
-                                       value={graceDays}
-                                       disabled={!enabled || !enforced}
-                                       min={0}
-                                       max={365}
-                                       label={t('siteSettings.graceDays.label')}
-                                       help={t('siteSettings.graceDays.help')}
-                                       onChange={v => setGraceDays(v)}/>
 
                             <TextField id="totp-site-groups"
                                        testid="site-groups-input"

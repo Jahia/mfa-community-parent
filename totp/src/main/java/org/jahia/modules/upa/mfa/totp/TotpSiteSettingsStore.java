@@ -22,12 +22,12 @@ import java.util.List;
  * <ul>
  *   <li>{@code enabled}  — whether TOTP MFA is active on this site. When false the
  *       {@link TotpFactorProvider} short-circuits with a "skipped" marker.</li>
- *   <li>{@code enforced} — whether enrollment is mandatory.</li>
- *   <li>{@code graceDays} — when enforcing, how many days a newly-prompted, not-yet-enrolled
- *       user may still sign in before enrollment becomes hard-required ({@code 0} = immediate).</li>
  *   <li>{@code enabledGroups} — if non-empty, the policy applies ONLY to members of these
  *       groups (e.g. {@code editors}); empty = all users of the site.</li>
  * </ul>
+ * Enforcement (and its grace window) is GLOBAL — see the extensions {@code MfaGlobalPolicy}.
+ * The legacy per-site {@code upaTotp:enforced}/{@code upaTotp:graceDays} properties remain in
+ * the CND for repository compatibility but are no longer read or written.
  * <p>
  * Reads go through a system session. Writes go through the caller-provided session because
  * they are gated by a {@code siteAdmin} permission check in the GraphQL layer — the standard
@@ -40,35 +40,23 @@ public class TotpSiteSettingsStore {
 
     public static final String MIXIN_SITE_SETTINGS = "upaTotp:siteSettings";
     public static final String PROP_ENABLED = "upaTotp:enabled";
-    public static final String PROP_ENFORCED = "upaTotp:enforced";
-    public static final String PROP_GRACE_DAYS = "upaTotp:graceDays";
     public static final String PROP_ENABLED_GROUPS = "upaTotp:enabledGroups";
     public static final String PROP_LOGIN_URL = "upaTotp:loginUrl";
     public static final String PROP_LOGOUT_URL = "upaTotp:logoutUrl";
 
-    /**
-     * Upper bound on the enrollment grace period. An unbounded value would let a site admin
-     * effectively disable enforcement forever with a single huge number (silent policy bypass).
-     */
-    public static final long MAX_GRACE_DAYS = 365L;
-
     /** Snapshot of the TOTP settings for a site. */
     public static final class TotpSiteSettings {
         public static final TotpSiteSettings DISABLED =
-                new TotpSiteSettings(false, false, 0L, Collections.emptyList(), null, null);
+                new TotpSiteSettings(false, Collections.emptyList(), null, null);
 
         private final boolean enabled;
-        private final boolean enforced;
-        private final long graceDays;
         private final List<String> enabledGroups;
         private final String loginUrl;
         private final String logoutUrl;
 
-        public TotpSiteSettings(boolean enabled, boolean enforced, long graceDays, List<String> enabledGroups,
+        public TotpSiteSettings(boolean enabled, List<String> enabledGroups,
                                 String loginUrl, String logoutUrl) {
             this.enabled = enabled;
-            this.enforced = enforced;
-            this.graceDays = graceDays;
             this.enabledGroups = enabledGroups == null
                     ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(enabledGroups));
             this.loginUrl = loginUrl;
@@ -76,8 +64,6 @@ public class TotpSiteSettingsStore {
         }
 
         public boolean isEnabled()  { return enabled; }
-        public boolean isEnforced() { return enforced; }
-        public long getGraceDays()  { return graceDays; }
         public List<String> getEnabledGroups() { return enabledGroups; }
 
         /** Per-site custom login page URL, or {@code null} if not set (falls back to global config). */
@@ -108,11 +94,7 @@ public class TotpSiteSettingsStore {
             }
             boolean enabled = siteNode.hasProperty(PROP_ENABLED)
                     && siteNode.getProperty(PROP_ENABLED).getBoolean();
-            boolean enforced = siteNode.hasProperty(PROP_ENFORCED)
-                    && siteNode.getProperty(PROP_ENFORCED).getBoolean();
-            long graceDays = siteNode.hasProperty(PROP_GRACE_DAYS)
-                    ? siteNode.getProperty(PROP_GRACE_DAYS).getLong() : 0L;
-            return new TotpSiteSettings(enabled, enforced, graceDays, readGroups(siteNode),
+            return new TotpSiteSettings(enabled, readGroups(siteNode),
                     readString(siteNode, PROP_LOGIN_URL), readString(siteNode, PROP_LOGOUT_URL));
         });
     }
@@ -160,10 +142,10 @@ public class TotpSiteSettingsStore {
     /**
      * Persist the settings via the caller's session (i.e. the authenticated admin's session).
      * The caller MUST have already validated site-administrator access — this method does no
-     * permission check of its own. It DOES validate the values: graceDays is clamped to
-     * {@code [0, MAX_GRACE_DAYS]} and the URLs must be safe server-relative paths
-     * (see {@link MfaUrls#validateSiteRelativeUrl}) — this is the single chokepoint every writer
-     * goes through, so the open-redirect guard cannot be bypassed by a future caller.
+     * permission check of its own. It DOES validate the values: the URLs must be safe
+     * server-relative paths (see {@link MfaUrls#validateSiteRelativeUrl}) — this is the single
+     * chokepoint every writer goes through, so the open-redirect guard cannot be bypassed by a
+     * future caller.
      *
      * @throws IllegalArgumentException when a URL is not a safe server-relative path
      */
@@ -179,8 +161,6 @@ public class TotpSiteSettingsStore {
             siteNode.addMixin(MIXIN_SITE_SETTINGS);
         }
         siteNode.setProperty(PROP_ENABLED, settings.isEnabled());
-        siteNode.setProperty(PROP_ENFORCED, settings.isEnforced());
-        siteNode.setProperty(PROP_GRACE_DAYS, Math.min(Math.max(0L, settings.getGraceDays()), MAX_GRACE_DAYS));
         List<String> cleaned = new ArrayList<>();
         for (String g : settings.getEnabledGroups()) {
             if (g != null && !g.trim().isEmpty()) {
@@ -191,10 +171,8 @@ public class TotpSiteSettingsStore {
         setOrRemove(siteNode, PROP_LOGIN_URL, cleanLoginUrl);
         setOrRemove(siteNode, PROP_LOGOUT_URL, cleanLogoutUrl);
         session.save();
-        logger.info("TOTP site settings saved for {}: enabled={}, enforced={}, graceDays={}, groups={}, "
-                        + "loginUrl={}, logoutUrl={}",
-                siteKey, settings.isEnabled(), settings.isEnforced(), settings.getGraceDays(), cleaned,
-                cleanLoginUrl, cleanLogoutUrl);
+        logger.info("TOTP site settings saved for {}: enabled={}, groups={}, loginUrl={}, logoutUrl={}",
+                siteKey, settings.isEnabled(), cleaned, cleanLoginUrl, cleanLogoutUrl);
     }
 
     /** Set a single-valued string property to its trimmed value, or remove it when blank. */

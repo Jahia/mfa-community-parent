@@ -34,7 +34,7 @@
   "siteSettings": {
     "menuLabel": "Security and passkeys",
     "title": "WebAuthn \u2014 {{siteKey}}",
-    "description": "Choose whether WebAuthn is active on this site and whether all users must register an authenticator.",
+    "description": "Choose whether WebAuthn is active on this site and which groups it applies to. Whether registration is REQUIRED is a platform-wide setting (enforcedFactors in the org.jahia.modules.mfa.extensions configuration).",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
     "saving": "Saving\u2026",
@@ -42,14 +42,6 @@
     "enabled": {
       "label": "Enable WebAuthn on this site",
       "help": "When on, users who have registered an authenticator are prompted for it at login."
-    },
-    "enforced": {
-      "label": "Enforce registration",
-      "help": "When on, users who have not registered an authenticator are redirected to register at login (subject to the grace period)."
-    },
-    "graceDays": {
-      "label": "Grace period (days)",
-      "help": "When enforcing, the number of days a newly-prompted user may still sign in before registration becomes mandatory. 0 = immediate, maximum 365."
     },
     "groups": {
       "label": "Restrict to groups (optional)",
@@ -80,7 +72,6 @@
     "errors": {
       "permissionDenied": "You don't have permission to change these settings.",
       "notAuthenticated": "Please sign in again to change these settings.",
-      "invalidGraceDays": "The grace period must be between 0 and 365 days.",
       "generic": "Could not save the settings. Please try again."
     }
   },

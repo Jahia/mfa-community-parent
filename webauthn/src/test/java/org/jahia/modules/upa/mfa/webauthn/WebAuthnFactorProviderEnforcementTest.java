@@ -198,7 +198,7 @@ public class WebAuthnFactorProviderEnforcementTest {
 
         @Override
         public WebAuthnSiteSettings load(String siteKey) {
-            return new WebAuthnSiteSettings(enabled, false, 0L, Collections.emptyList());
+            return new WebAuthnSiteSettings(enabled, Collections.emptyList());
         }
     }
 }
