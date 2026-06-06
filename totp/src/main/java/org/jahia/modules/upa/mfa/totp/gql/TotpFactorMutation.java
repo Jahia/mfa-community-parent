@@ -343,13 +343,12 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INVALID_CODE);
         }
 
+        if (preAuth) {
+            return finalizePreAuthEnrollment(userId, secretBase32, code, session, request, response);
+        }
+
         List<String> plaintextBackup = backupCodes.generate();
         List<String> hashed = plaintextBackup.stream().map(backupCodes::hash).collect(Collectors.toList());
-
-        if (preAuth) {
-            return finalizePreAuthEnrollment(userId, secretBase32, code, hashed, plaintextBackup,
-                    session, request, response);
-        }
 
         try {
             // SINGLE JCR transaction: persists the secret, enrolled flag, hashed backup codes
@@ -387,9 +386,10 @@ public class TotpFactorMutation {
      * "consume via the chokepoint" invariant is preserved rather than bypassed.
      */
     private TotpConfirmEnrollResult finalizePreAuthEnrollment(String userId, String secretBase32, String code,
-                                                              List<String> hashed, List<String> plaintextBackup,
                                                               MfaSession session, HttpServletRequest request,
                                                               HttpServletResponse response) {
+        List<String> plaintextBackup = backupCodes.generate();
+        List<String> hashed = plaintextBackup.stream().map(backupCodes::hash).collect(Collectors.toList());
         try {
             userStore.saveEnrollment(userId, secretBase32, hashed, -1L);
             userStore.clearGrace(userId);
