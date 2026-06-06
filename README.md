@@ -15,8 +15,15 @@ that share one sign-in UI:
 The reactor root is `mfa-community-parent`. The two factor modules (`totp`, `webauthn`) depend on
 `mfa-factors-extensions` (`jahia-depends`), which therefore starts first.
 
-Each factor ships its own self-service dashboard panel and per-site administration page
-(enable / enforce / grace period / group scoping, user reset, audit + enrollment report).
+Each factor ships its own self-service dashboard panel. Site administration groups everything
+under one **MFA Community** entry:
+
+- **Extensions** — the per-site login/logout routing consumed by the shared login provider;
+- **Two-factor authentication** — TOTP policy (enable / enforce / grace period / group scoping,
+  user reset);
+- **Security and passkeys** — WebAuthn policy (same shape);
+- **Audit & reporting** — every installed factor's audit log and enrollment/registration report
+  on a single page (each factor contributes its section; the page shows whatever is installed).
 
 ## Requirements
 
@@ -78,7 +85,7 @@ callers (the actual authentication / rate limiting happens at the resolver level
 `MfaLoginLogoutProvider` (in the extensions bundle) implements Jahia's `LoginUrlProvider` /
 `LogoutUrlProvider` SPI. URLs are resolved **per request** with this precedence: a **per-site**
 `loginUrl` / `logoutUrl` reported by any factor through the `MfaSiteProvider` SPI (TOTP surfaces
-the values set from the site's *Two-factor authentication* administration page, stored on the
+the values set from the site's *MFA Community → Extensions* administration page, stored on the
 `upaTotp:siteSettings` mixin) → the **global** `.cfg` value above → Jahia's default. When nothing
 is configured for a site the provider returns nothing, so deploying the module never hijacks
 login on its own. Global `.cfg` edits are applied live (no restart); per-site values take effect
@@ -127,8 +134,9 @@ Users register one or more authenticators from the dashboard (*Security keys & p
 at login the browser performs an assertion ceremony — the private key never leaves the device,
 and the assertion is bound to the site's origin so it cannot be relayed by a phishing proxy.
 
-It ships its own per-site administration page (enable / enforce / grace / groups, user reset,
-audit + registration report) mirroring TOTP, and credentials are stored as
+It ships its own per-site administration page (*MFA Community → Security and passkeys*: enable /
+enforce / grace / groups, user reset) mirroring TOTP, contributes its registration report to the
+shared *Audit & reporting* page, and credentials are stored as
 `upaWebauthn:credential` child nodes on the user. Clone detection is enforced via the
 authenticator signature counter, persisted atomically on each assertion.
 
@@ -238,12 +246,12 @@ spent twice — not even by two simultaneous login attempts.
 A user who has lost **both** their authenticator device and their backup codes cannot sign
 in on an enforcing site. The recovery path is administrative:
 
-1. A **site administrator** opens the site's *Two-factor authentication* administration
-   page and uses **"Reset a user's MFA"** (GraphQL: `resetUserMfa(userId, siteKey)`).
+1. A **site administrator** opens the site's *MFA Community → Two-factor authentication*
+   administration page and uses **"Reset a user's MFA"** (GraphQL: `resetUserMfa(userId, siteKey)`).
    A confirmation step guards the action; it clears the user's secret, backup codes,
    grace tracking and any management lockout.
 2. The reset is recorded in the audit log (`reset` event, with the acting admin in the
-   detail field) and visible under *Audit & reporting* on the same page.
+   detail field) and visible under *MFA Community → Audit & reporting*.
 3. At next login the user enrolls again from scratch (new secret, new backup codes).
 
 If codes from a healthy authenticator are rejected, check the device clock: the server

@@ -6,7 +6,6 @@ import {ContentLayout} from '@jahia/moonstone-alpha';
 import {SiteSettingsQuery, SetSiteSettingsMutation} from './SiteSettings.gql';
 import {mapAdminError, resolveSiteKey} from './siteSettings.util';
 import ResetUserSection from './ResetUserSection';
-import AuditReportSection from './AuditReportSection';
 
 const SiteSettings = () => {
     const {t} = useTranslation('mfa-factors-totp');
@@ -16,6 +15,8 @@ const SiteSettings = () => {
     const [enforced, setEnforced] = useState(false);
     const [graceDays, setGraceDays] = useState(0);
     const [groups, setGroups] = useState('');
+    // Login/logout URLs are edited on the "MFA Community > Extensions" page; they are loaded and
+    // round-tripped here unchanged because the mutation persists the full site settings state.
     const [loginUrl, setLoginUrl] = useState('');
     const [logoutUrl, setLogoutUrl] = useState('');
     const [savedAt, setSavedAt] = useState(null);
@@ -137,31 +138,6 @@ const SiteSettings = () => {
                                        help={t('siteSettings.groups.help')}
                                        onChange={v => setGroups(v)}/>
 
-                            <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
-                                {t('siteSettings.urls.title')}
-                            </Typography>
-                            <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
-                                {t('siteSettings.urls.help')}
-                            </Typography>
-
-                            <TextField id="totp-site-login-url"
-                                       testid="site-login-url-input"
-                                       type="text"
-                                       value={loginUrl}
-                                       placeholder="/sites/mySite/login.html"
-                                       label={t('siteSettings.loginUrl.label')}
-                                       help={t('siteSettings.loginUrl.help')}
-                                       onChange={v => setLoginUrl(v)}/>
-
-                            <TextField id="totp-site-logout-url"
-                                       testid="site-logout-url-input"
-                                       type="text"
-                                       value={logoutUrl}
-                                       placeholder="/sites/mySite/logout.html"
-                                       label={t('siteSettings.logoutUrl.label')}
-                                       help={t('siteSettings.logoutUrl.help')}
-                                       onChange={v => setLogoutUrl(v)}/>
-
                             {errorKey && (
                                 <Typography role="alert"
                                             style={{color: '#a00000', display: 'block', marginTop: 12}}
@@ -182,9 +158,6 @@ const SiteSettings = () => {
 
                             <hr style={{margin: '32px 0'}}/>
                             <ResetUserSection siteKey={siteKey}/>
-
-                            <hr style={{margin: '32px 0'}}/>
-                            <AuditReportSection siteKey={siteKey}/>
                         </>
                     )}
                 </div>

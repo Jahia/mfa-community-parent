@@ -24,7 +24,7 @@
     "nicknameLabel": "Name (optional)",
     "nicknamePlaceholder": "e.g. YubiKey, MacBook Touch ID",
     "button": "Register",
-    "inProgress": "Waiting for your authenticator…"
+    "inProgress": "Waiting for your authenticator\u2026"
   },
   "errors": {
     "unsupported": "This browser does not support WebAuthn. Try a recent version of Chrome, Edge, Firefox or Safari.",
@@ -32,12 +32,12 @@
     "failed": "Could not register the authenticator. Please try again."
   },
   "siteSettings": {
-    "menuLabel": "Security keys & passkeys (WebAuthn)",
-    "title": "WebAuthn — {{siteKey}}",
+    "menuLabel": "Security and passkeys",
+    "title": "WebAuthn \u2014 {{siteKey}}",
     "description": "Choose whether WebAuthn is active on this site and whether all users must register an authenticator.",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
-    "saving": "Saving…",
+    "saving": "Saving\u2026",
     "saved": "Settings saved.",
     "enabled": {
       "label": "Enable WebAuthn on this site",
@@ -83,5 +83,12 @@
       "invalidGraceDays": "The grace period must be between 0 and 365 days.",
       "generic": "Could not save the settings. Please try again."
     }
+  },
+  "mfaCommunity": {
+    "menuLabel": "MFA Community"
+  },
+  "auditReporting": {
+    "menuLabel": "Audit & reporting",
+    "title": "Audit & reporting \u2014 {{siteKey}}"
   }
 }

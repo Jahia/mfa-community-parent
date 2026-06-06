@@ -6,7 +6,6 @@ import {ContentLayout} from '@jahia/moonstone-alpha';
 import {SiteSettingsQuery, SetSiteSettingsMutation} from './SiteSettings.gql';
 import {mapAdminError, resolveSiteKey} from './siteSettings.util';
 import ResetUserSection from './ResetUserSection';
-import AuditReportSection from './AuditReportSection';
 
 const SiteSettings = () => {
     const {t} = useTranslation('mfa-factors-webauthn');
@@ -151,9 +150,6 @@ const SiteSettings = () => {
 
                             <hr style={{margin: '32px 0'}}/>
                             <ResetUserSection siteKey={siteKey}/>
-
-                            <hr style={{margin: '32px 0'}}/>
-                            <AuditReportSection siteKey={siteKey}/>
                         </>
                     )}
                 </div>
