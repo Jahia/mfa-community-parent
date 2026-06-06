@@ -56,7 +56,8 @@ under one **MFA Community** entry:
 ## Configuration
 
 The **shared infrastructure** is configured under PID `org.jahia.modules.mfa.extensions`
-(shipped by the extensions bundle):
+(shipped by the extensions bundle). It can be edited from the UI — *Administration → Server →
+Configuration → MFA Community* (server administrators) — or directly in the Karaf file:
 
 - `extensions/src/main/resources/META-INF/configurations/org.jahia.modules.mfa.extensions.cfg`
 

@@ -9,11 +9,15 @@ Third-party Jahia 8.2 **multi-module Maven project** (root `pom.xml` is a `packa
 aggregator with artifactId `mfa-community-parent`, mirroring UPA's layout). It has four modules:
 
 - **`extensions/`** &mdash; an OSGi bundle (`packaging=bundle`, artifactId
-  `mfa-factors-extensions`, no UI) holding the shared, factor-agnostic infrastructure: the
+  `mfa-factors-extensions`) holding the shared, factor-agnostic infrastructure: the
   `/cms/login` gate (`MfaLoginGateFilter`), the login/logout URL provider
-  (`MfaLoginLogoutProvider`), the backup-code generator (`BackupCodes`), the open-redirect URL
-  guard (`MfaUrls`), and the `MfaSiteProvider` SPI each factor implements. The factor bundles
-  depend on it (`jahia-depends`), so it starts first.
+  (`MfaLoginLogoutProvider`), the global enforcement policy (`MfaGlobalPolicy`), the backup-code
+  generator (`BackupCodes`), the open-redirect URL guard (`MfaUrls`), and the `MfaSiteProvider`
+  SPI each factor implements. Ships a GraphQL surface
+  (`mfaExtensionsConfiguration` / `mfaExtensionsSaveConfiguration`, admin-only via
+  ConfigurationAdmin) and a server-administration panel (webpack/MF, *Administration → Server →
+  Configuration → MFA Community*) editing the `org.jahia.modules.mfa.extensions` PID. The factor
+  bundles depend on it (`jahia-depends`), so it starts first.
 - **`totp/`** &mdash; an OSGi bundle (`packaging=bundle`, artifactId `mfa-factors-totp`).
   Implements the `MfaFactorProvider` SPI exposed by the
   [User Password Authentication (UPA)](https://github.com/Jahia/user-password-authentication)

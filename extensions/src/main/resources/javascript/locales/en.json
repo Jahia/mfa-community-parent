@@ -1,0 +1,55 @@
+{
+  "settings": {
+    "menuLabel": "MFA Community",
+    "title": "MFA Community — global configuration",
+    "description": "Platform-wide MFA settings. Changes apply immediately (the Karaf configuration org.jahia.modules.mfa.extensions is updated and the components hot-reload).",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Configuration saved.",
+    "enforcement": {
+      "title": "Enforced factors",
+      "help": "Users must have AT LEAST ONE of the checked factors configured and verify one of them at sign-in. A user with none configured is taken through inline enrollment on the login page once the grace window has elapsed. Nothing checked = no enforcement. A factor must also be enabled per site (each factor's administration page) to take part.",
+      "factorHelp": "Require this factor as part of the platform-wide policy.",
+      "noFactors": "No MFA factor modules are currently installed."
+    },
+    "factors": {
+      "totp": "Authenticator app (TOTP)",
+      "webauthn": "Security key / passkey (WebAuthn)"
+    },
+    "graceDays": {
+      "label": "Grace period (days)",
+      "help": "Days a user with no enforced factor configured may still sign in, counted per user from their first enforced sign-in attempt. 0 = immediate enforcement. Maximum 365."
+    },
+    "gate": {
+      "title": "/cms/login gate",
+      "help": "Jahia's legacy /cms/login endpoint authenticates with username/password only and never consults MFA factors — while enforcement is active it is a second-factor bypass. The gate rejects it with 403 when an enforced factor is enabled on the request's site.",
+      "enabled": {
+        "label": "Enable the /cms/login gate",
+        "help": "Set the IP whitelist FIRST: enabling the gate with an empty whitelist locks everyone (including platform administrators) out of /cms/login as soon as enforcement applies."
+      },
+      "whitelist": {
+        "label": "IP whitelist",
+        "help": "Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate. The client IP is the first X-Forwarded-For entry when present — only enable the gate behind a reverse proxy that overwrites that header."
+      }
+    },
+    "urls": {
+      "title": "Login / logout routing (global defaults)",
+      "help": "The pages unauthenticated users are redirected to. Per-site values (each factor's administration page) take precedence. Unlike per-site values, these operator-level URLs may be absolute (e.g. an external SSO portal)."
+    },
+    "loginUrl": {
+      "label": "Login page URL",
+      "help": "The page that renders the MFA login UI (the totpui:authentication component). Leave empty to keep Jahia's default login handling."
+    },
+    "logoutUrl": {
+      "label": "Logout page URL",
+      "help": "Optional custom sign-out page. Leave empty to use Jahia's default logout handling."
+    },
+    "errors": {
+      "unknownFactor": "One of the enforced factors is not an installed factor type.",
+      "invalidGraceDays": "The grace period must be between 0 and 365 days.",
+      "invalidWhitelist": "The IP whitelist contains an invalid entry — use IPv4/IPv6 addresses or CIDR blocks.",
+      "permissionDenied": "You do not have permission to change this configuration.",
+      "generic": "The configuration could not be saved. Please check the server logs."
+    }
+  }
+}

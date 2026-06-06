@@ -5,6 +5,8 @@ import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.osgi.service.component.annotations.ReferencePolicy;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -33,6 +35,23 @@ public class MfaFactorDirectory {
 
     public void unbindSiteProvider(MfaSiteProvider provider) {
         siteProviders.remove(provider);
+    }
+
+    /**
+     * The factor types currently registered through the {@link MfaSiteProvider} SPI (distinct,
+     * registration order). Used by the administration UI to offer one enforcement checkbox per
+     * installed factor, and by the configuration mutation to refuse unknown factor names (a typo
+     * in {@code enforcedFactors} would create an unsatisfiable policy).
+     */
+    public List<String> getRegisteredFactorTypes() {
+        List<String> types = new ArrayList<>();
+        for (MfaSiteProvider provider : siteProviders) {
+            String type = provider.getFactorType();
+            if (type != null && !types.contains(type)) {
+                types.add(type);
+            }
+        }
+        return Collections.unmodifiableList(types);
     }
 
     /**

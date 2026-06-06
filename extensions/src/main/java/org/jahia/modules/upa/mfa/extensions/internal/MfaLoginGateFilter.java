@@ -150,8 +150,12 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
                 enabled ? "ENABLED" : "disabled", entries.size(), entries.size() == 1 ? "y" : "ies");
     }
 
-    /** Parse the comma-separated whitelist, dropping (and logging) syntactically invalid entries. */
-    static List<String> parseWhitelist(Object raw) {
+    /**
+     * Parse the comma-separated whitelist, dropping (and logging) syntactically invalid entries.
+     * Public so the administration mutation can validate submitted values (the class itself is
+     * internal/unexported).
+     */
+    public static List<String> parseWhitelist(Object raw) {
         if (raw == null || StringUtils.isBlank(raw.toString())) {
             return Collections.emptyList();
         }

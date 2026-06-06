@@ -8,6 +8,10 @@ target/
 *.class
 
 # Frontend build output (factor modules: Java bundle + dashboard React)
+extensions/node_modules/
+extensions/node/
+extensions/src/main/resources/javascript/apps
+extensions/bom/
 totp/node_modules/
 totp/node/
 totp/src/main/resources/javascript/apps

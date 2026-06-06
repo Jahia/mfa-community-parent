@@ -66,7 +66,7 @@ public class MfaGlobalPolicy {
     }
 
     /** Parse the comma-separated factor list: trimmed, lowercased, deduped, order preserved. */
-    static List<String> parseEnforcedFactors(Object raw) {
+    public static List<String> parseEnforcedFactors(Object raw) {
         if (raw == null || StringUtils.isBlank(raw.toString())) {
             return Collections.emptyList();
         }
@@ -81,7 +81,7 @@ public class MfaGlobalPolicy {
     }
 
     /** Parse the grace window, clamped to {@code [0, MAX_GRACE_DAYS]}; malformed values mean 0. */
-    static long parseGraceDays(Object raw) {
+    public static long parseGraceDays(Object raw) {
         if (raw == null || StringUtils.isBlank(raw.toString())) {
             return 0L;
         }
