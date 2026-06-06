@@ -124,6 +124,13 @@ in the same flow. Empty `enforcedFactors` (the default) = no enforcement.
 > `mfaEnabledFactors=["totp","webauthn"]` — verified to yield both factors. A single factor
 > works fine in the `.cfg` (`mfaEnabledFactors=totp`).
 
+> **Every enforced factor MUST also be listed in `mfaEnabledFactors`.** UPA only challenges
+> the factors it requires. If a factor is in `enforcedFactors` but not in `mfaEnabledFactors`,
+> a user who configured **only that factor** satisfies pick-one (the required factors skip)
+> while the factor itself is never verified — the sign-in completes on password alone. The
+> factor providers log a `WARN` (*"…is not in UPA's mfaEnabledFactors — this sign-in completes
+> WITHOUT a second-factor challenge"*) when this happens.
+
 ### The `/cms/login` gate
 
 Jahia's legacy `/cms/login` endpoint authenticates with username/password only — it never
@@ -170,12 +177,13 @@ Configuration (Karaf PID `org.jahia.modules.webauthn`):
 | --- | --- | --- |
 | `rpId` | `localhost` | The WebAuthn **Relying Party ID** — a registrable suffix of the browsing origin's host (host only, no scheme/port), e.g. `example.com`. Credentials are scoped to it. |
 | `rpName` | `Jahia` | Human-readable site name shown by the authenticator during registration. |
-| `origins` | _(derived)_ | Indexed list (`origins.0=…`) of full allowed origins (`scheme://host[:port]`). Leave unset to derive from `rpId`. |
+| `origins` | _(derived)_ | Comma-separated full allowed origins (`scheme://host[:port]`); indexed `origins.N=…` keys are accepted too. Any port is tolerated. Leave unset to derive **both** `https://<rpId>` and `http://<rpId>` (the http form only ever matters on localhost-style hosts — the one place browsers allow WebAuthn without TLS). |
 
 > **WebAuthn requires a secure context.** Ceremonies run only over **HTTPS**, except on
 > `http://localhost`. Set `rpId`/`origins` to match the host users actually browse (e.g.
-> `rpId=example.com`, `origins.0=https://example.com`); a mismatch makes the browser refuse the
-> ceremony. Behind a reverse proxy, Tomcat must also see the real scheme/host (configure
+> `rpId=example.com`, `origins=https://example.com`); a mismatch makes the browser refuse the
+> ceremony with a `SecurityError` (the login UI shows *"Could not register your authenticator"*).
+> Behind a reverse proxy, Tomcat must also see the real scheme/host (configure
 > `RemoteIpValve`) so the server-side origin check agrees with the browser.
 
 ## GraphQL API

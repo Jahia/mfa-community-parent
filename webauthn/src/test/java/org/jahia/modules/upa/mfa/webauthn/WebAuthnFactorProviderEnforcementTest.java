@@ -112,6 +112,19 @@ public class WebAuthnFactorProviderEnforcementTest {
     }
 
     @Test
+    public void enforced_siblingConfiguredButNotRequired_stillSkips() throws Exception {
+        // Mirrors the TOTP row: the configured sibling is not in UPA's mfaEnabledFactors, so
+        // it can never be challenged in this session — skip stands, a misconfiguration
+        // warning is logged.
+        configurePolicy("totp,webauthn", null);
+        credentialStore.registered = false;
+        session = new MfaSession(new MfaSessionContext(
+                USER_ID, Locale.ENGLISH, SITE, false, Collections.singletonList("webauthn")));
+        provider.bindSiteProvider(siblingProvider("totp", true, true));
+        assertTrue(isSkipped(provider.prepare(ctx())));
+    }
+
+    @Test
     public void enforced_nothingConfigured_withinGrace_skips() throws Exception {
         configurePolicy("webauthn", "7");
         credentialStore.registered = false;

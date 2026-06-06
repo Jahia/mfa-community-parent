@@ -141,8 +141,10 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
         if (isRegistered(userId)) {
             return startAssertion(userId);
         }
-        if (anotherEnforcedFactorConfigured(userId)) {
-            logger.debug("WebAuthn skipped for user {} (another enforced factor is configured)", userId);
+        String sibling = configuredSiblingFactor(userId);
+        if (sibling != null) {
+            warnIfSiblingNotRequired(preparationContext, userId, sibling);
+            logger.debug("WebAuthn skipped for user {} (enforced factor {} is configured)", userId, sibling);
             return new WebAuthnPreparationResult(true);
         }
         return prepareNoEnforcedFactor(userId, null);
@@ -170,8 +172,10 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
         if (registered) {
             return startAssertion(userId);
         }
-        if (anotherEnforcedFactorConfigured(userId)) {
-            logger.debug("WebAuthn skipped for user {} (another enforced factor is configured)", userId);
+        String sibling = configuredSiblingFactor(userId);
+        if (sibling != null) {
+            warnIfSiblingNotRequired(preparationContext, userId, sibling);
+            logger.debug("WebAuthn skipped for user {} (enforced factor {} is configured)", userId, sibling);
             return new WebAuthnPreparationResult(true);
         }
         return prepareNoEnforcedFactor(userId, siteKey);
@@ -222,10 +226,11 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
     }
 
     /**
-     * Whether the user has another globally enforced factor configured (via the sibling
-     * {@code MfaSiteProvider}s). A provider that cannot answer fails CLOSED for sign-in.
+     * The first other globally enforced factor the user has configured (via the sibling
+     * {@code MfaSiteProvider}s), or {@code null}. A provider that cannot answer fails CLOSED
+     * for sign-in.
      */
-    private boolean anotherEnforcedFactorConfigured(String userId) throws MfaException {
+    private String configuredSiblingFactor(String userId) throws MfaException {
         for (MfaSiteProvider provider : siteProviders) {
             String type = provider.getFactorType();
             if (FACTOR_TYPE.equals(type) || !globalPolicy.isEnforced(type)) {
@@ -233,14 +238,32 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
             }
             try {
                 if (provider.isConfiguredForUser(userId)) {
-                    return true;
+                    return type;
                 }
             } catch (RuntimeException e) {
                 logger.warn("Failed to read {} configuration state for user {}: {}", type, userId, e.getMessage());
                 throw new MfaException(ERROR_INTERNAL);
             }
         }
-        return false;
+        return null;
+    }
+
+    /**
+     * Pick-one hands verification over to the configured sibling factor — but UPA only ever
+     * challenges the factors listed in its own {@code mfaEnabledFactors}. If the sibling is
+     * missing there, this sign-in completes with NO second-factor challenge at all: an
+     * enforcement bypass caused purely by configuration. Warn loudly instead of blocking —
+     * blocking would dead-end the user, since pre-auth inline registration is closed once any
+     * enforced factor is owned (mirrors {@code TotpFactorProvider}).
+     */
+    private void warnIfSiblingNotRequired(PreparationContext preparationContext, String userId, String sibling) {
+        List<String> required = preparationContext.getSessionContext().getRequiredFactors();
+        if (required == null || !required.contains(sibling)) {
+            logger.warn("WebAuthn skipped for user {} because enforced factor '{}' is configured, but '{}' is not "
+                    + "in UPA's mfaEnabledFactors — this sign-in completes WITHOUT a second-factor challenge. "
+                    + "Add it to mfaEnabledFactors (PID org.jahia.modules.upa, typed .config file) so it is "
+                    + "actually verified.", userId, sibling, sibling);
+        }
     }
 
     /**

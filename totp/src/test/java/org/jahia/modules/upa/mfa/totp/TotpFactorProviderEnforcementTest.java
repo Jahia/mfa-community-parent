@@ -139,6 +139,21 @@ public class TotpFactorProviderEnforcementTest {
     }
 
     @Test
+    public void enforced_siblingConfiguredButNotRequired_stillSkips() throws Exception {
+        // UPA's mfaEnabledFactors only lists totp: the configured sibling can never be
+        // challenged in this session, so the sign-in completes without a second factor.
+        // The skip stands (blocking would dead-end the user — pre-auth enrollment is closed
+        // once any enforced factor is owned); the provider logs a loud misconfiguration
+        // warning instead.
+        configurePolicy("totp,webauthn", null);
+        userStore.enrolled = false;
+        session = new MfaSession(new MfaSessionContext(
+                USER_ID, Locale.ENGLISH, SITE, false, Collections.singletonList("totp")));
+        provider.bindSiteProvider(siblingProvider("webauthn", true, true));
+        assertTrue(isSkipped(provider.prepare(ctx())));
+    }
+
+    @Test
     public void enforced_nothingConfigured_withinGrace_skips() throws Exception {
         configurePolicy("totp", "7");
         userStore.enrolled = false;
