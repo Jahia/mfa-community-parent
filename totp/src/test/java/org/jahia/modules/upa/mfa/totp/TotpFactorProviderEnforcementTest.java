@@ -1,12 +1,14 @@
 package org.jahia.modules.upa.mfa.totp;
 
 import org.jahia.modules.upa.mfa.MfaException;
+import org.jahia.modules.upa.mfa.MfaFactorState;
 import org.jahia.modules.upa.mfa.MfaService;
 import org.jahia.modules.upa.mfa.MfaSession;
 import org.jahia.modules.upa.mfa.MfaSessionContext;
 import org.jahia.modules.upa.mfa.PreparationContext;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
+import org.jahia.modules.upa.mfa.extensions.SkippablePreparation;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -154,6 +156,25 @@ public class TotpFactorProviderEnforcementTest {
     }
 
     @Test
+    public void enforced_siblingVerifiedBySkipDrain_doesNotSatisfyPickOne() {
+        // The webauthn factor was drained as SKIPPED earlier in this session (its own pick-one
+        // row deferred to a configured sibling): its verified flag is not a real verification
+        // and must not satisfy pick-one here — otherwise two unchallenged factors excuse each
+        // other circularly and the session completes without any challenge.
+        configurePolicy("totp,webauthn", "0");
+        userStore.enrolled = false;
+        MfaFactorState webauthnState = session.getOrCreateFactorState("webauthn");
+        webauthnState.setPreparationResult(new SkippedSiblingPreparation());
+        webauthnState.setVerified(true);
+        try {
+            provider.prepare(ctx());
+            fail("expected enrollment_required — a skip-drained sibling is not a real verification");
+        } catch (MfaException e) {
+            assertEquals(TotpFactorProvider.ERROR_ENROLLMENT_REQUIRED, e.getCode());
+        }
+    }
+
+    @Test
     public void enforced_nothingConfigured_withinGrace_skips() throws Exception {
         configurePolicy("totp", "7");
         userStore.enrolled = false;
@@ -223,6 +244,14 @@ public class TotpFactorProviderEnforcementTest {
     }
 
     // --- fakes ------------------------------------------------------------------------------
+
+    /** Stands in for the sibling module's preparation result marked as a pick-one skip. */
+    private static class SkippedSiblingPreparation implements SkippablePreparation, Serializable {
+        @Override
+        public boolean isSkipped() {
+            return true;
+        }
+    }
 
     private static MfaSiteProvider siblingProvider(String type, boolean configuredForUser, boolean enabledForSite) {
         return new MfaSiteProvider() {

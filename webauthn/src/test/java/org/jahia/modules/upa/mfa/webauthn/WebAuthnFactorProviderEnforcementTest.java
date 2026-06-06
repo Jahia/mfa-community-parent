@@ -1,12 +1,14 @@
 package org.jahia.modules.upa.mfa.webauthn;
 
 import org.jahia.modules.upa.mfa.MfaException;
+import org.jahia.modules.upa.mfa.MfaFactorState;
 import org.jahia.modules.upa.mfa.MfaService;
 import org.jahia.modules.upa.mfa.MfaSession;
 import org.jahia.modules.upa.mfa.MfaSessionContext;
 import org.jahia.modules.upa.mfa.PreparationContext;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
+import org.jahia.modules.upa.mfa.extensions.SkippablePreparation;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -20,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -125,6 +128,37 @@ public class WebAuthnFactorProviderEnforcementTest {
     }
 
     @Test
+    public void enforced_siblingSkipDrained_registeredUserIsStillChallenged() throws Exception {
+        // The reported circular-skip bug: the user owns a passkey but no TOTP. Picking the
+        // TOTP step first drains it as SKIPPED (its pick-one row defers to the registered
+        // webauthn credential) — that drain must NOT satisfy pick-one here, or the session
+        // completes with no challenge at all. The registered user gets a real assertion.
+        configurePolicy("totp,webauthn", null);
+        credentialStore.registered = true;
+        provider.setWebAuthnService(new FakeWebAuthnService());
+        MfaFactorState totpState = session.getOrCreateFactorState("totp");
+        totpState.setPreparationResult(new SkippedSiblingPreparation());
+        totpState.setVerified(true);
+        assertFalse("a registered user must get a real assertion challenge",
+                isSkipped(provider.prepare(ctx())));
+    }
+
+    @Test
+    public void enforced_siblingSkipDrained_nothingConfigured_throwsRegistrationRequired() {
+        configurePolicy("totp,webauthn", "0");
+        credentialStore.registered = false;
+        MfaFactorState totpState = session.getOrCreateFactorState("totp");
+        totpState.setPreparationResult(new SkippedSiblingPreparation());
+        totpState.setVerified(true);
+        try {
+            provider.prepare(ctx());
+            fail("expected registration_required — a skip-drained sibling is not a real verification");
+        } catch (MfaException e) {
+            assertEquals(WebAuthnFactorProvider.ERROR_REGISTRATION_REQUIRED, e.getCode());
+        }
+    }
+
+    @Test
     public void enforced_nothingConfigured_withinGrace_skips() throws Exception {
         configurePolicy("webauthn", "7");
         credentialStore.registered = false;
@@ -192,6 +226,21 @@ public class WebAuthnFactorProviderEnforcementTest {
     }
 
     // --- fakes ------------------------------------------------------------------------------
+
+    /** Stands in for the sibling module's preparation result marked as a pick-one skip. */
+    private static class SkippedSiblingPreparation implements SkippablePreparation, Serializable {
+        @Override
+        public boolean isSkipped() {
+            return true;
+        }
+    }
+
+    private static class FakeWebAuthnService extends WebAuthnService {
+        @Override
+        public AssertionCeremony startAssertion(String username) {
+            return new AssertionCeremony("{}", "{}");
+        }
+    }
 
     private static MfaSiteProvider siblingProvider(String type, boolean configuredForUser, boolean enabledForSite) {
         return new MfaSiteProvider() {

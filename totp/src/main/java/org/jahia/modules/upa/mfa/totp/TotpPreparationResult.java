@@ -1,5 +1,7 @@
 package org.jahia.modules.upa.mfa.totp;
 
+import org.jahia.modules.upa.mfa.extensions.SkippablePreparation;
+
 import java.io.Serializable;
 
 /**
@@ -12,7 +14,7 @@ import java.io.Serializable;
  * accepts ANY submission — the UI is expected not to render a TOTP step at all, but this
  * is a defensive backstop so a misconfigured client doesn't get stuck.
  */
-public class TotpPreparationResult implements Serializable {
+public class TotpPreparationResult implements Serializable, SkippablePreparation {
     private static final long serialVersionUID = 2L;
     private final boolean skipped;
 
@@ -24,6 +26,7 @@ public class TotpPreparationResult implements Serializable {
         this.skipped = skipped;
     }
 
+    @Override
     public boolean isSkipped() {
         return skipped;
     }

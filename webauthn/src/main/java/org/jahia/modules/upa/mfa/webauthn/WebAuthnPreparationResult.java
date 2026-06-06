@@ -1,5 +1,7 @@
 package org.jahia.modules.upa.mfa.webauthn;
 
+import org.jahia.modules.upa.mfa.extensions.SkippablePreparation;
+
 import java.io.Serializable;
 
 /**
@@ -12,7 +14,7 @@ import java.io.Serializable;
  * When {@code skipped} is true (site disabled, user out of scope, or unenforced + unregistered),
  * {@link WebAuthnFactorProvider#verify} accepts any submission as a defensive backstop.
  */
-public class WebAuthnPreparationResult implements Serializable {
+public class WebAuthnPreparationResult implements Serializable, SkippablePreparation {
     private static final long serialVersionUID = 1L;
 
     private final boolean skipped;
@@ -29,6 +31,7 @@ public class WebAuthnPreparationResult implements Serializable {
         this.clientOptionsJson = clientOptionsJson;
     }
 
+    @Override
     public boolean isSkipped() {
         return skipped;
     }

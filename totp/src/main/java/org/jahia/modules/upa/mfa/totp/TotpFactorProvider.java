@@ -10,6 +10,7 @@ import org.jahia.modules.upa.mfa.VerificationContext;
 import org.jahia.modules.upa.mfa.extensions.BackupCodes;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
+import org.jahia.modules.upa.mfa.extensions.SkippablePreparation;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
@@ -234,7 +235,13 @@ public class TotpFactorProvider implements MfaFactorProvider {
                 "enrollableFactors", enrollableFactorsForSite(siteKey));
     }
 
-    /** Whether another globally enforced factor is already verified in the current MFA session. */
+    /**
+     * Whether another globally enforced factor was GENUINELY verified in the current MFA
+     * session. A factor drained as skipped also carries the verified flag (the client
+     * acknowledges the skip with an empty verify call), but it was never actually challenged —
+     * counting it would let two unchallenged factors skip-drain each other circularly (each
+     * pointing at the other) and complete the session with no challenge at all.
+     */
     private boolean anotherEnforcedFactorVerified(PreparationContext preparationContext) {
         HttpServletRequest request = preparationContext.getHttpServletRequest();
         if (request == null) {
@@ -245,11 +252,18 @@ public class TotpFactorProvider implements MfaFactorProvider {
             return false;
         }
         for (String factor : globalPolicy.getEnforcedFactors()) {
-            if (!FACTOR_TYPE.equals(factor) && session.isFactorVerified(factor)) {
+            if (!FACTOR_TYPE.equals(factor) && session.isFactorVerified(factor)
+                    && !verifiedBySkipDrain(session, factor)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Whether the factor's session "verification" was just the client draining a pick-one skip. */
+    private static boolean verifiedBySkipDrain(MfaSession session, String factor) {
+        Serializable prep = session.getOrCreateFactorState(factor).getPreparationResult();
+        return prep instanceof SkippablePreparation && ((SkippablePreparation) prep).isSkipped();
     }
 
     /**
