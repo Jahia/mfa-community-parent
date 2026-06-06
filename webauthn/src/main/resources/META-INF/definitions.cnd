@@ -20,6 +20,12 @@
  - upaWebauthn:graceStartedAt (long) = '0' autocreated protected
  + * (upaWebauthn:credential) = upaWebauthn:credential
 
+// Per-user online-brute-force lockout state for the registration management surface
+// (cluster-safe: persisted in shared JCR rather than an in-heap map) — mirrors upaTotp:lockout.
+[upaWebauthn:lockout] mixin
+ - upaWebauthn:failedAttempts (long) = '0' autocreated protected
+ - upaWebauthn:windowStart (long) = '0' autocreated protected
+
 // Per-site WebAuthn policy — mirrors upaTotp:siteSettings.
 [upaWebauthn:siteSettings] mixin
  - upaWebauthn:enabled (boolean) = false autocreated

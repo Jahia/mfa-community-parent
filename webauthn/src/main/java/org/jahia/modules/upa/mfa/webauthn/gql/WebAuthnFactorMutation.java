@@ -12,9 +12,12 @@ import org.jahia.modules.graphql.provider.dxm.osgi.annotations.GraphQLOsgiServic
 import org.jahia.modules.graphql.provider.dxm.util.ContextUtil;
 import org.jahia.modules.upa.mfa.MfaService;
 import org.jahia.modules.upa.mfa.MfaSession;
+import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
+import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.gql.Result;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnAuditLog;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnCredentialStore;
+import org.jahia.modules.upa.mfa.webauthn.WebAuthnManagementRateLimiter;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnService;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnSiteSettingsStore;
 import org.jahia.services.content.JCRSessionFactory;
@@ -56,6 +59,7 @@ public class WebAuthnFactorMutation {
     private static final String ERROR_INTERNAL = "factor.webauthn.internal_error";
     private static final String ERROR_NO_REGISTRATION_STATE = "factor.webauthn.no_registration_state";
     private static final String ERROR_REGISTRATION_FAILED = "factor.webauthn.registration_failed";
+    private static final String ERROR_LOCKED_OUT = "factor.webauthn.locked_out";
     private static final String ERROR_INVALID_GRACE_DAYS = "factor.webauthn.invalid_grace_days";
     private static final String OUTCOME_SUCCESS = "success";
 
@@ -67,9 +71,21 @@ public class WebAuthnFactorMutation {
     private WebAuthnCredentialStore credentialStore;
     private WebAuthnSiteSettingsStore siteSettingsStore;
     private WebAuthnAuditLog auditLog;
+    private MfaGlobalPolicy globalPolicy;
+    private MfaFactorDirectory factorDirectory;
+    private WebAuthnManagementRateLimiter rateLimiter;
 
     @Inject @GraphQLOsgiService
     public void setMfaService(MfaService mfaService) { this.mfaService = mfaService; }
+
+    @Inject @GraphQLOsgiService
+    public void setGlobalPolicy(MfaGlobalPolicy globalPolicy) { this.globalPolicy = globalPolicy; }
+
+    @Inject @GraphQLOsgiService
+    public void setFactorDirectory(MfaFactorDirectory factorDirectory) { this.factorDirectory = factorDirectory; }
+
+    @Inject @GraphQLOsgiService
+    public void setRateLimiter(WebAuthnManagementRateLimiter rateLimiter) { this.rateLimiter = rateLimiter; }
 
     @Inject @GraphQLOsgiService
     public void setWebAuthnService(WebAuthnService webAuthnService) { this.webAuthnService = webAuthnService; }
@@ -123,7 +139,12 @@ public class WebAuthnFactorMutation {
     @GraphQLDescription("Begin registering a new authenticator; returns navigator.credentials.create() options.")
     public WebAuthnRegistrationOptionsResult startRegistration(DataFetchingEnvironment environment) {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
-        String userId = requireUser().getName();
+        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        boolean preAuth = (user == null);
+        String userId = preAuth ? requirePreAuthRegistrationSubject(request) : user.getName();
+        if (preAuth && rateLimiter.isLockedOut(userId)) {
+            throw new DataFetchingException(ERROR_LOCKED_OUT);
+        }
         try {
             ByteArray userHandle = credentialStore.userHandleFor(userId)
                     .orElseThrow(() -> new DataFetchingException(ERROR_INTERNAL));
@@ -145,7 +166,12 @@ public class WebAuthnFactorMutation {
             @GraphQLName("nickname") String nickname,
             DataFetchingEnvironment environment) {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
-        String userId = requireUser().getName();
+        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        boolean preAuth = (user == null);
+        String userId = preAuth ? requirePreAuthRegistrationSubject(request) : user.getName();
+        if (preAuth && rateLimiter.isLockedOut(userId)) {
+            throw new DataFetchingException(ERROR_LOCKED_OUT);
+        }
         HttpSession http = request.getSession(false);
         String requestJson = http == null ? null : (String) http.getAttribute(REGISTRATION_STATE_ATTR);
         if (StringUtils.isBlank(requestJson)) {
@@ -159,9 +185,18 @@ public class WebAuthnFactorMutation {
                     handle, outcome.getTransports(), outcome.getAaguidB64(), nickname));
             credentialStore.clearGrace(userId);
             http.removeAttribute(REGISTRATION_STATE_ATTR);
-            auditLog.recordEvent("register", OUTCOME_SUCCESS, userId, null, null);
+            if (preAuth) {
+                rateLimiter.recordSuccess(userId);
+            }
+            auditLog.recordEvent("register", OUTCOME_SUCCESS, userId, null, preAuth ? "inlineLogin" : null);
+            // On the pre-auth path the session is NOT completed here: registration produces an
+            // attestation, while login needs an assertion — the client immediately runs the
+            // standard prepare → navigator.credentials.get() → verify ceremony to finish signing in.
             return new WebAuthnStatusResult(loadCredentialResults(userId));
         } catch (com.yubico.webauthn.exception.RegistrationFailedException e) {
+            if (preAuth) {
+                rateLimiter.recordFailure(userId);
+            }
             logger.warn("WebAuthn registration rejected for {}: {}", userId, e.getMessage());
             throw new DataFetchingException(ERROR_REGISTRATION_FAILED);
         } catch (IOException | RepositoryException e) {
@@ -270,6 +305,44 @@ public class WebAuthnFactorMutation {
             throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
         }
         return user;
+    }
+
+    /**
+     * The pre-authentication inline-registration guard. Registering an authenticator without an
+     * authenticated user is allowed ONLY when ALL of the following hold (fails CLOSED on doubt):
+     * <ol>
+     *   <li>an initiated, error-free MFA session exists (the password was already validated);</li>
+     *   <li>this factor is part of the global enforcement policy;</li>
+     *   <li>the session user owns NO globally enforced factor — the anti-takeover barrier: a
+     *       caller who only proved the password must never add an authenticator to an account
+     *       that already has a second factor.</li>
+     * </ol>
+     *
+     * @return the MFA-session user id (the registration subject)
+     */
+    private String requirePreAuthRegistrationSubject(HttpServletRequest request) {
+        MfaSession session = mfaService.getMfaSession(request);
+        if (session == null || !session.isInitiated() || session.hasError()) {
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        if (!globalPolicy.isEnforced(FACTOR_TYPE)) {
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        String userId = session.getContext().getUserId();
+        boolean ownsEnforcedFactor;
+        try {
+            ownsEnforcedFactor = factorDirectory.hasAnyEnforcedFactorConfigured(userId);
+        } catch (RuntimeException e) {
+            logger.error("Could not evaluate factor ownership for user {} (refusing pre-auth registration): {}",
+                    userId, e.getMessage());
+            throw new DataFetchingException(ERROR_INTERNAL);
+        }
+        if (ownsEnforcedFactor) {
+            logger.warn("Refused pre-auth WebAuthn registration for user {}: an enforced factor is already "
+                    + "configured", userId);
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        return userId;
     }
 
     private static String currentUserName() {

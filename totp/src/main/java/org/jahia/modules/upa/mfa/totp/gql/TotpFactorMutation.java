@@ -11,7 +11,10 @@ import org.jahia.modules.graphql.provider.dxm.osgi.annotations.GraphQLOsgiServic
 import org.jahia.modules.graphql.provider.dxm.util.ContextUtil;
 import org.jahia.modules.upa.mfa.MfaService;
 import org.jahia.modules.upa.mfa.MfaSession;
+import org.jahia.modules.upa.mfa.MfaFactorState;
 import org.jahia.modules.upa.mfa.extensions.BackupCodes;
+import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
+import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.extensions.MfaUrls;
 import org.jahia.modules.upa.mfa.gql.Result;
 import org.jahia.modules.upa.mfa.totp.TotpAuditLog;
@@ -77,11 +80,25 @@ public class TotpFactorMutation {
     private TotpManagementRateLimiter rateLimiter;
     private TotpSiteSettingsStore siteSettingsStore;
     private TotpAuditLog auditLog;
+    private MfaGlobalPolicy globalPolicy;
+    private MfaFactorDirectory factorDirectory;
 
     @Inject
     @GraphQLOsgiService
     public void setMfaService(MfaService mfaService) {
         this.mfaService = mfaService;
+    }
+
+    @Inject
+    @GraphQLOsgiService
+    public void setGlobalPolicy(MfaGlobalPolicy globalPolicy) {
+        this.globalPolicy = globalPolicy;
+    }
+
+    @Inject
+    @GraphQLOsgiService
+    public void setFactorDirectory(MfaFactorDirectory factorDirectory) {
+        this.factorDirectory = factorDirectory;
     }
 
     @Inject
@@ -135,10 +152,18 @@ public class TotpFactorMutation {
         HttpServletResponse response = ContextUtil.getHttpServletResponse(environment.getGraphQlContext());
 
         JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
-        if (user == null) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        boolean preAuth = (user == null);
+        String userId;
+        if (preAuth) {
+            // Inline enrollment during sign-in: the caller proved the password (initiated MFA
+            // session) but is not authenticated yet. Force-re-enrollment is never allowed here.
+            if (forceFlag) {
+                throw new DataFetchingException(ERROR_FORCE_NOT_ALLOWED);
+            }
+            userId = requirePreAuthEnrollmentSubject(request);
+        } else {
+            userId = user.getName();
         }
-        String userId = user.getName();
 
         TotpUserStore.TotpUserSettings settings;
         try {
@@ -148,6 +173,11 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INTERNAL);
         }
         if (settings.isEnrolled()) {
+            // Defense in depth: the pre-auth guard already refuses users owning any enforced
+            // factor, so an enrolled user can only reach re-enrollment authenticated.
+            if (preAuth) {
+                throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+            }
             authorizeReEnroll(user, userId, forceFlag, currentCode);
         }
 
@@ -226,6 +256,44 @@ public class TotpFactorMutation {
         }
     }
 
+    /**
+     * The pre-authentication inline-enrollment guard. Enrollment without an authenticated user
+     * is allowed ONLY when ALL of the following hold (fails CLOSED on any doubt):
+     * <ol>
+     *   <li>an initiated, error-free MFA session exists (the password was already validated);</li>
+     *   <li>this factor is part of the global enforcement policy;</li>
+     *   <li>the session user owns NO globally enforced factor — the anti-takeover barrier: a
+     *       caller who only proved the password must never add a factor to an account that
+     *       already has one (that would replace the legitimate owner's second factor).</li>
+     * </ol>
+     *
+     * @return the MFA-session user id (the enrollment subject)
+     */
+    private String requirePreAuthEnrollmentSubject(HttpServletRequest request) {
+        MfaSession session = mfaService.getMfaSession(request);
+        if (session == null || !session.isInitiated() || session.hasError()) {
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        if (!globalPolicy.isEnforced(FACTOR_TYPE)) {
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        String userId = session.getContext().getUserId();
+        boolean ownsEnforcedFactor;
+        try {
+            ownsEnforcedFactor = factorDirectory.hasAnyEnforcedFactorConfigured(userId);
+        } catch (RuntimeException e) {
+            logger.error("Could not evaluate factor ownership for user {} (refusing pre-auth enrollment): {}",
+                    userId, e.getMessage());
+            throw new DataFetchingException(ERROR_INTERNAL);
+        }
+        if (ownsEnforcedFactor) {
+            logger.warn("Refused pre-auth TOTP enrollment for user {}: an enforced factor is already configured",
+                    userId);
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        return userId;
+    }
+
     @GraphQLField
     @GraphQLName("confirmEnroll")
     @GraphQLDescription("Finalize TOTP enrollment with the first generated code. Returns one-shot backup codes.")
@@ -237,12 +305,11 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INVALID_CODE);
         }
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
+        HttpServletResponse response = ContextUtil.getHttpServletResponse(environment.getGraphQlContext());
 
         JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
-        if (user == null) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        String userId = user.getName();
+        boolean preAuth = (user == null);
+        String userId = preAuth ? requirePreAuthEnrollmentSubject(request) : user.getName();
 
         if (rateLimiter.isLockedOut(userId)) {
             throw new DataFetchingException(ERROR_LOCKED_OUT);
@@ -279,6 +346,11 @@ public class TotpFactorMutation {
         List<String> plaintextBackup = backupCodes.generate();
         List<String> hashed = plaintextBackup.stream().map(backupCodes::hash).collect(Collectors.toList());
 
+        if (preAuth) {
+            return finalizePreAuthEnrollment(userId, secretBase32, code, hashed, plaintextBackup,
+                    session, request, response);
+        }
+
         try {
             // SINGLE JCR transaction: persists the secret, enrolled flag, hashed backup codes
             // AND the matched counter so the enrollment code cannot be replayed at login.
@@ -301,6 +373,41 @@ public class TotpFactorMutation {
         auditLog.recordEvent("confirmEnroll", OUTCOME_SUCCESS, userId, auditSiteKey(responseSession), null);
         logger.info("TOTP enrollment confirmed for user {}", userId);
         return new TotpConfirmEnrollResult(responseSession, plaintextBackup);
+    }
+
+    /**
+     * Finalize an inline (pre-authentication) enrollment and complete the login in one step.
+     * <p>
+     * The enrollment is persisted with {@code lastUsedCounter = -1} — the matched counter is
+     * deliberately NOT consumed here — and the submitted code is then handed to the standard
+     * {@code verifyFactor} chokepoint, which re-verifies it, consumes the counter atomically
+     * (replay protection), marks the factor verified and, once every required factor is done,
+     * authenticates the user. The not-yet-consumed window is confined to this single request and
+     * the guard guarantees a brand-new enrollment (no prior counter exists), so the
+     * "consume via the chokepoint" invariant is preserved rather than bypassed.
+     */
+    private TotpConfirmEnrollResult finalizePreAuthEnrollment(String userId, String secretBase32, String code,
+                                                              List<String> hashed, List<String> plaintextBackup,
+                                                              MfaSession session, HttpServletRequest request,
+                                                              HttpServletResponse response) {
+        try {
+            userStore.saveEnrollment(userId, secretBase32, hashed, -1L);
+            userStore.clearGrace(userId);
+        } catch (RepositoryException e) {
+            logger.warn("Failed to persist TOTP inline enrollment for user {}: {}", userId, e.getMessage());
+            throw new DataFetchingException(ERROR_INTERNAL);
+        }
+        // Wipe the transient secret and hand the factor to the standard verify path with a real
+        // (non-skipped) preparation marker.
+        writeEnrollmentState(session, request, null);
+        MfaFactorState factorState = session.getOrCreateFactorState(FACTOR_TYPE);
+        factorState.setPreparationResult(new TotpPreparationResult());
+        factorState.setPrepared(true);
+        MfaSession verifiedSession = mfaService.verifyFactor(FACTOR_TYPE, code, request, response);
+        rateLimiter.recordSuccess(userId);
+        auditLog.recordEvent("confirmEnroll", OUTCOME_SUCCESS, userId, auditSiteKey(verifiedSession), "inlineLogin");
+        logger.info("TOTP inline enrollment confirmed during sign-in for user {}", userId);
+        return new TotpConfirmEnrollResult(verifiedSession, plaintextBackup);
     }
 
     @GraphQLField

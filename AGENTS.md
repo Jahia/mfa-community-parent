@@ -103,7 +103,15 @@ from a snapshot.
   function that re-reads `lastUsedCounter`, verifies the code, and persists the consumed
   counter in the **same JCR transaction**. Every management mutation that consumes a TOTP
   code routes through this method via `TotpFactorMutation.verifyTotpAndConsume`. Do not
-  add a sibling code path that verifies without consuming.
+  add a sibling code path that verifies without consuming. The pre-auth inline enrollment
+  (`confirmEnroll` during sign-in) persists the enrollment with `lastUsedCounter = -1` and
+  immediately delegates to `mfaService.verifyFactor`, which consumes the same code through
+  this chokepoint within the same request — it does not bypass it.
+- **Pre-auth enrollment guard:** the inline enroll/registration mutations accept an
+  unauthenticated caller ONLY with an initiated error-free MFA session (password proven), a
+  globally enforced factor, and a user who owns NO enforced factor
+  (`MfaFactorDirectory.hasAnyEnforcedFactorConfigured`, fail-closed). Never weaken the
+  "owns nothing" check: it is the anti-takeover barrier for stolen passwords.
 - **Backup codes are PBKDF2-hashed at rest** (`BackupCodes.hash`, in the shared `extensions`
   bundle); never persist or compare raw codes. Verification uses `MessageDigest.isEqual`
   (constant time).
