@@ -23,6 +23,7 @@ import org.jahia.modules.upa.mfa.webauthn.WebAuthnSiteSettingsStore;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.usermanager.JahiaUser;
+import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -138,7 +139,7 @@ public class WebAuthnFactorMutation {
     @GraphQLDescription("Begin registering a new authenticator; returns navigator.credentials.create() options.")
     public WebAuthnRegistrationOptionsResult startRegistration(DataFetchingEnvironment environment) {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        JahiaUser user = currentNonGuestUser();
         boolean preAuth = (user == null);
         String userId = preAuth ? requirePreAuthRegistrationSubject(request) : user.getName();
         if (preAuth && rateLimiter.isLockedOut(userId)) {
@@ -165,7 +166,7 @@ public class WebAuthnFactorMutation {
             @GraphQLName("nickname") String nickname,
             DataFetchingEnvironment environment) {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        JahiaUser user = currentNonGuestUser();
         boolean preAuth = (user == null);
         String userId = preAuth ? requirePreAuthRegistrationSubject(request) : user.getName();
         if (preAuth && rateLimiter.isLockedOut(userId)) {
@@ -294,11 +295,22 @@ public class WebAuthnFactorMutation {
     }
 
     private static JahiaUser requireUser() {
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        JahiaUser user = currentNonGuestUser();
         if (user == null) {
             throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
         }
         return user;
+    }
+
+    /**
+     * The authenticated (non-guest) caller, or {@code null}. CRITICAL: Jahia resolves
+     * unauthenticated GraphQL requests to the GUEST user, not to {@code null} — treating guest
+     * as authenticated would silently run self-service operations against the literal
+     * {@code guest} account (and bypass the pre-auth registration guard).
+     */
+    private static JahiaUser currentNonGuestUser() {
+        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        return (user == null || JahiaUserManagerService.isGuest(user)) ? null : user;
     }
 
     /**

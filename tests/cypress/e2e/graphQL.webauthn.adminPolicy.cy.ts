@@ -1,8 +1,8 @@
 /**
  * GraphQL coverage for the WebAuthn per-site policy + admin surfaces (the part that does NOT
  * need a browser authenticator):
- *   - setSiteSettings / siteSettings round-trip (enabled, enforced, graceDays, enabledGroups)
- *   - graceDays bound (0..365) guard
+ *   - setSiteSettings / siteSettings round-trip (enabled, enabledGroups)
+ *     — enforcement is GLOBAL (org.jahia.modules.mfa.extensions), not part of this surface
  *   - permission gate (non-admin is denied)
  *   - resetUserWebauthn (admin recovery)
  *   - auditEvents (admin actions are recorded)
@@ -22,9 +22,9 @@ const ROOT = {username: 'root', password: Cypress.env('SUPER_USER_PASSWORD') as 
 
 const setSiteSettings = (vars: Record<string, unknown>) => cy.apollo({
     mutation: gql`
-        mutation Set($siteKey: String!, $enabled: Boolean!, $enforced: Boolean!, $graceDays: Int, $enabledGroups: [String]) {
-            upa { mfaFactors { webauthn { setSiteSettings(siteKey: $siteKey, enabled: $enabled, enforced: $enforced, graceDays: $graceDays, enabledGroups: $enabledGroups) {
-                enabled enforced graceDays enabledGroups
+        mutation Set($siteKey: String!, $enabled: Boolean!, $enabledGroups: [String]) {
+            upa { mfaFactors { webauthn { setSiteSettings(siteKey: $siteKey, enabled: $enabled, enabledGroups: $enabledGroups) {
+                enabled enabledGroups
             } } } }
         }`,
     variables: vars,
@@ -32,7 +32,7 @@ const setSiteSettings = (vars: Record<string, unknown>) => cy.apollo({
 });
 
 const getSiteSettings = (siteKey: string) => cy.apollo({
-    query: gql`query Get($siteKey: String!) { mfaWebauthn { siteSettings(siteKey: $siteKey) { enabled enforced graceDays enabledGroups } } }`,
+    query: gql`query Get($siteKey: String!) { mfaWebauthn { siteSettings(siteKey: $siteKey) { enabled enabledGroups } } }`,
     variables: {siteKey},
     fetchPolicy: 'no-cache',
     errorPolicy: 'all'
@@ -87,30 +87,17 @@ describe('WebAuthn per-site policy & admin (GraphQL)', () => {
         });
     });
 
-    it('round-trips per-site policy (enabled, enforced, graceDays, enabledGroups)', () => {
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 7, enabledGroups: ['editors', 'reviewers']})
+    it('round-trips per-site policy (enabled, enabledGroups)', () => {
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enabledGroups: ['editors', 'reviewers']})
             .then(res => {
                 const s = res?.data?.upa?.mfaFactors?.webauthn?.setSiteSettings;
                 expect(s.enabled).to.be.true;
-                expect(s.enforced).to.be.true;
-                expect(s.graceDays).to.eq(7);
                 expect(s.enabledGroups).to.have.members(['editors', 'reviewers']);
             });
         getSiteSettings(SITE_KEY).then(res => {
             const s = res?.data?.mfaWebauthn?.siteSettings;
             expect(s.enabled).to.be.true;
-            expect(s.enforced).to.be.true;
-            expect(s.graceDays).to.eq(7);
             expect(s.enabledGroups).to.have.members(['editors', 'reviewers']);
-        });
-    });
-
-    it('rejects a grace period above 365 days', () => {
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 99999}).then(res => {
-            expect(firstErrorMessage(res), 'huge graceDays must be rejected').to.match(/invalid_grace_days/);
-        });
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 365}).then(res => {
-            expect(res?.data?.upa?.mfaFactors?.webauthn?.setSiteSettings?.graceDays, 'max accepted').to.eq(365);
         });
     });
 
@@ -119,7 +106,7 @@ describe('WebAuthn per-site policy & admin (GraphQL)', () => {
         const pwd = jfaker.internet.password();
         createUser(usr, pwd);
         cy.apolloClient({username: usr, password: pwd});
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false}).then(res => {
+        setSiteSettings({siteKey: SITE_KEY, enabled: true}).then(res => {
             expect(firstErrorMessage(res), 'non-admin must be denied').to.match(/permission_denied|not_authenticated/);
         });
         cy.apolloClient(ROOT);

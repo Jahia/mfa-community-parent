@@ -114,6 +114,15 @@ in the same flow. Empty `enforcedFactors` (the default) = no enforcement.
 > properties; nothing reads them). Operators opt in by setting `enforcedFactors` globally —
 > per-site `enabled` + group scoping still applies.
 
+> **UPA prerequisite for several factors:** UPA's `mfaEnabledFactors` (PID
+> `org.jahia.modules.upa`) is an OSGi `String[]` and CANNOT hold several values in a plain
+> `.cfg` file — `mfaEnabledFactors=totp,webauthn` becomes ONE bogus element and silently
+> disables MFA, and indexed keys (`mfaEnabledFactors.0=…`) fall back to the `email_code`
+> default. Use a Felix **typed `.config` file** instead (replacing the `.cfg`, same PID):
+> `<karaf>/etc/org.jahia.modules.upa.config` containing
+> `mfaEnabledFactors=["totp","webauthn"]` — verified to yield both factors. A single factor
+> works fine in the `.cfg` (`mfaEnabledFactors=totp`).
+
 ### The `/cms/login` gate
 
 Jahia's legacy `/cms/login` endpoint authenticates with username/password only — it never

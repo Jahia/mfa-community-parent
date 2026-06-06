@@ -11,6 +11,7 @@ import org.jahia.modules.upa.mfa.totp.TotpSiteSettingsStore;
 import org.jahia.modules.upa.mfa.totp.TotpUserStore;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.usermanager.JahiaUser;
+import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,7 +61,8 @@ public class TotpFactorQuery {
     @GraphQLDescription("TOTP enrollment status for the currently authenticated user")
     public TotpStatusResult status() {
         JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
-        if (user == null) {
+        // Jahia resolves unauthenticated requests to GUEST, not null.
+        if (user == null || JahiaUserManagerService.isGuest(user)) {
             throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
         }
         try {

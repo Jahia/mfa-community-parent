@@ -15,31 +15,53 @@ import {confirmEnroll, enroll} from './api';
 import {totpCode} from './totp';
 
 /**
- * Enable (or disable) TOTP MFA on a site via the new per-site GraphQL mutation.
+ * Enable (or disable) TOTP MFA on a site via the per-site GraphQL mutation.
  * Must run as an authenticated site admin / root (the default apollo client is root).
- * Required because TOTP is now opt-in per site — without this the factor is skipped
- * at login even when totp is in the global mfaEnabledFactors config.
+ * Required because TOTP is opt-in per site — without this the factor is skipped at login
+ * even when totp is in the global mfaEnabledFactors config. (Enforcement is GLOBAL: see
+ * setGlobalEnforcement.)
  */
-export function setSiteTotpSettings(siteKey: string, enabled: boolean, enforced: boolean) {
+export function setSiteTotpSettings(siteKey: string, enabled: boolean) {
     return cy.apollo({
         mutation: gql`
-            mutation SetSiteTotp($siteKey: String!, $enabled: Boolean!, $enforced: Boolean!) {
+            mutation SetSiteTotp($siteKey: String!, $enabled: Boolean!) {
                 upa {
                     mfaFactors {
                         totp {
-                            setSiteSettings(siteKey: $siteKey, enabled: $enabled, enforced: $enforced) {
+                            setSiteSettings(siteKey: $siteKey, enabled: $enabled) {
                                 siteKey
                                 enabled
-                                enforced
                             }
                         }
                     }
                 }
             }
         `,
-        variables: {siteKey, enabled, enforced},
+        variables: {siteKey, enabled},
         errorPolicy: 'all',
     });
+}
+
+/**
+ * Set the GLOBAL enforcement policy (PID org.jahia.modules.mfa.extensions) through the
+ * provisioning API: which factors are enforced platform-wide and the grace window in days.
+ * Pass an empty string to turn enforcement off. ALWAYS revert in after() — a leftover
+ * enforcement policy would push every other spec's users through inline enrollment.
+ */
+export function setGlobalEnforcement(enforcedFactors: string, graceDays = 0) {
+    const password = Cypress.env('SUPER_USER_PASSWORD') as string;
+    cy.request({
+        method: 'POST',
+        url: '/modules/api/provisioning',
+        auth: {user: 'root', pass: password},
+        headers: {'Content-Type': 'application/json'},
+        body: [{
+            editConfiguration: 'org.jahia.modules.mfa.extensions',
+            properties: {enforcedFactors, graceDays: String(graceDays)},
+        }],
+    });
+    // Give ConfigAdmin a moment to dispatch the @Modified event to the policy component.
+    cy.wait(2000);
 }
 
 export const TOTP_LOGIN_PAGE_NAME = 'myLoginPage';

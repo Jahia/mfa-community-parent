@@ -27,7 +27,7 @@ describe('TOTP login UI — Enter key submits the form', () => {
     before(() => {
         createSiteWithTotpLoginPage(SITE_KEY);
         installTotpMFAConfig();
-        setSiteTotpSettings(SITE_KEY, true, false);
+        setSiteTotpSettings(SITE_KEY, true);
     });
 
     after(() => {

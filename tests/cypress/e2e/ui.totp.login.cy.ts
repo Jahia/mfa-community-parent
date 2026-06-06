@@ -39,7 +39,7 @@ describe('TOTP login UI', () => {
         installTotpMFAConfig();
         // TOTP is opt-in per site: enable it (not enforced — we pre-enrol the user so an
         // enrolled user is challenged at login).
-        setSiteTotpSettings(SITE_KEY, true, false);
+        setSiteTotpSettings(SITE_KEY, true);
     });
 
     after(() => {

@@ -11,6 +11,7 @@ import org.jahia.modules.upa.mfa.webauthn.WebAuthnCredentialStore;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnSiteSettingsStore;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.usermanager.JahiaUser;
+import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,7 +60,8 @@ public class WebAuthnFactorQuery {
     @GraphQLDescription("WebAuthn registration status + credentials for the currently authenticated user.")
     public WebAuthnStatusResult status() {
         JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
-        if (user == null) {
+        // Jahia resolves unauthenticated requests to GUEST, not null.
+        if (user == null || JahiaUserManagerService.isGuest(user)) {
             throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
         }
         try {

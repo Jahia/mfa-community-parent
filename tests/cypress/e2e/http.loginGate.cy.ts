@@ -15,6 +15,7 @@
  */
 import {createSite, deleteSite} from '@jahia/cypress';
 import gql from 'graphql-tag';
+import {setGlobalEnforcement} from './utils';
 
 const SITE_KEY = 'sample-totp-gate';
 
@@ -36,14 +37,14 @@ const setGateConfig = (enabled: boolean, ipWhitelist: string) => {
     cy.wait(2000);
 };
 
-const setEnforced = (enforced: boolean) => cy.apollo({
+const setSiteEnabled = (enabled: boolean) => cy.apollo({
     mutation: gql`
-        mutation Set($siteKey: String!, $enforced: Boolean!) {
-            upa { mfaFactors { totp { setSiteSettings(siteKey: $siteKey, enabled: true, enforced: $enforced) {
-                enforced
+        mutation Set($siteKey: String!, $enabled: Boolean!) {
+            upa { mfaFactors { totp { setSiteSettings(siteKey: $siteKey, enabled: $enabled) {
+                enabled
             } } } }
         }`,
-    variables: {siteKey: SITE_KEY, enforced}
+    variables: {siteKey: SITE_KEY, enabled}
 });
 
 const requestLogin = (headers: Record<string, string> = {}, qs: Record<string, string> = {}) => cy.request({
@@ -63,16 +64,20 @@ describe('/cms/login gate while TOTP enrollment is enforced (HTTP)', () => {
             serverName: 'localhost'
         });
         cy.apolloClient(ROOT);
-        setEnforced(true);
+        // The gate now requires the GLOBAL enforcement policy AND the factor enabled on a site.
+        setSiteEnabled(true);
+        setGlobalEnforcement('totp', 0);
         // Whitelist a TEST-NET-3 range; the cypress container's real IP is never in it.
         setGateConfig(true, '203.0.113.0/24');
     });
 
     after(() => {
-        // ALWAYS revert: a leftover enabled gate would 403 cy.login() in every other spec.
+        // ALWAYS revert: a leftover enabled gate (or enforcement policy) would break every
+        // other spec's logins.
         setGateConfig(false, '');
+        setGlobalEnforcement('', 0);
         cy.apolloClient(ROOT);
-        setEnforced(false);
+        setSiteEnabled(false);
         deleteSite(SITE_KEY);
     });
 

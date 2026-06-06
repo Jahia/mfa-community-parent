@@ -27,6 +27,7 @@ import org.jahia.modules.upa.mfa.totp.TotpUserStore;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.usermanager.JahiaUser;
+import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -150,7 +151,7 @@ public class TotpFactorMutation {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
         HttpServletResponse response = ContextUtil.getHttpServletResponse(environment.getGraphQlContext());
 
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        JahiaUser user = currentNonGuestUser();
         boolean preAuth = (user == null);
         String userId;
         if (preAuth) {
@@ -306,7 +307,7 @@ public class TotpFactorMutation {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
         HttpServletResponse response = ContextUtil.getHttpServletResponse(environment.getGraphQlContext());
 
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        JahiaUser user = currentNonGuestUser();
         boolean preAuth = (user == null);
         String userId = preAuth ? requirePreAuthEnrollmentSubject(request) : user.getName();
 
@@ -448,7 +449,7 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INVALID_CODE);
         }
 
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        JahiaUser user = currentNonGuestUser();
         if (user == null) {
             throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
         }
@@ -501,7 +502,7 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INVALID_CODE);
         }
 
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        JahiaUser user = currentNonGuestUser();
         if (user == null) {
             throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
         }
@@ -667,6 +668,17 @@ public class TotpFactorMutation {
     private static String currentUserName() {
         JahiaUser u = JCRSessionFactory.getInstance().getCurrentUser();
         return u == null ? "<anonymous>" : u.getName();
+    }
+
+    /**
+     * The authenticated (non-guest) caller, or {@code null}. CRITICAL: Jahia resolves
+     * unauthenticated GraphQL requests to the GUEST user, not to {@code null} — treating guest
+     * as authenticated would silently run self-service operations against the literal
+     * {@code guest} account (and bypass the pre-auth enrollment guard).
+     */
+    private static JahiaUser currentNonGuestUser() {
+        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
+        return (user == null || JahiaUserManagerService.isGuest(user)) ? null : user;
     }
 
     /** Best-effort site key for auditing a self-service event (empty when outside a site flow). */

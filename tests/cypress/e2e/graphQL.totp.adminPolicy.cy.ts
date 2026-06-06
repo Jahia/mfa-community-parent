@@ -1,6 +1,7 @@
 /**
  * GraphQL coverage for the per-site policy + admin surfaces:
- *   - setSiteSettings / siteSettings round-trip (enabled, enforced, graceDays, enabledGroups)
+ *   - setSiteSettings / siteSettings round-trip (enabled, enabledGroups, login/logout URLs)
+ *     — enforcement is GLOBAL (org.jahia.modules.mfa.extensions), not part of this surface
  *   - permission gate (non-admin is denied)
  *   - resetUserMfa (admin recovery)
  *   - auditEvents (the above actions are recorded)
@@ -20,9 +21,9 @@ const ROOT = {username: 'root', password: Cypress.env('SUPER_USER_PASSWORD') as 
 
 const setSiteSettings = (vars: Record<string, unknown>) => cy.apollo({
     mutation: gql`
-        mutation Set($siteKey: String!, $enabled: Boolean!, $enforced: Boolean!, $graceDays: Int, $enabledGroups: [String], $loginUrl: String, $logoutUrl: String) {
-            upa { mfaFactors { totp { setSiteSettings(siteKey: $siteKey, enabled: $enabled, enforced: $enforced, graceDays: $graceDays, enabledGroups: $enabledGroups, loginUrl: $loginUrl, logoutUrl: $logoutUrl) {
-                enabled enforced graceDays enabledGroups loginUrl logoutUrl
+        mutation Set($siteKey: String!, $enabled: Boolean!, $enabledGroups: [String], $loginUrl: String, $logoutUrl: String) {
+            upa { mfaFactors { totp { setSiteSettings(siteKey: $siteKey, enabled: $enabled, enabledGroups: $enabledGroups, loginUrl: $loginUrl, logoutUrl: $logoutUrl) {
+                enabled enabledGroups loginUrl logoutUrl
             } } } }
         }`,
     variables: vars,
@@ -30,7 +31,7 @@ const setSiteSettings = (vars: Record<string, unknown>) => cy.apollo({
 });
 
 const getSiteSettings = (siteKey: string) => cy.apollo({
-    query: gql`query Get($siteKey: String!) { mfaTotp { siteSettings(siteKey: $siteKey) { enabled enforced graceDays enabledGroups loginUrl logoutUrl } } }`,
+    query: gql`query Get($siteKey: String!) { mfaTotp { siteSettings(siteKey: $siteKey) { enabled enabledGroups loginUrl logoutUrl } } }`,
     variables: {siteKey},
     fetchPolicy: 'no-cache',
     errorPolicy: 'all'
@@ -75,15 +76,13 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
         cy.apolloClient(ROOT);
     });
 
-    it('round-trips per-site policy (enabled, enforced, graceDays, enabledGroups, login/logout URLs)', () => {
+    it('round-trips per-site policy (enabled, enabledGroups, login/logout URLs)', () => {
         const loginUrl = `/sites/${SITE_KEY}/login.html`;
         const logoutUrl = `/sites/${SITE_KEY}/logout.html`;
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 7, enabledGroups: ['editors', 'reviewers'], loginUrl, logoutUrl})
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enabledGroups: ['editors', 'reviewers'], loginUrl, logoutUrl})
             .then(res => {
                 const s = res?.data?.upa?.mfaFactors?.totp?.setSiteSettings;
                 expect(s.enabled).to.be.true;
-                expect(s.enforced).to.be.true;
-                expect(s.graceDays).to.eq(7);
                 expect(s.enabledGroups).to.have.members(['editors', 'reviewers']);
                 expect(s.loginUrl).to.eq(loginUrl);
                 expect(s.logoutUrl).to.eq(logoutUrl);
@@ -91,8 +90,6 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
         getSiteSettings(SITE_KEY).then(res => {
             const s = res?.data?.mfaTotp?.siteSettings;
             expect(s.enabled).to.be.true;
-            expect(s.enforced).to.be.true;
-            expect(s.graceDays).to.eq(7);
             expect(s.enabledGroups).to.have.members(['editors', 'reviewers']);
             expect(s.loginUrl).to.eq(loginUrl);
             expect(s.logoutUrl).to.eq(logoutUrl);
@@ -100,8 +97,8 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
     });
 
     it('clears per-site login/logout URLs when set blank (falls back to global/default)', () => {
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false, loginUrl: `/sites/${SITE_KEY}/login.html`, logoutUrl: ''});
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false, loginUrl: null, logoutUrl: null});
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: `/sites/${SITE_KEY}/login.html`, logoutUrl: ''});
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: null, logoutUrl: null});
         getSiteSettings(SITE_KEY).then(res => {
             const s = res?.data?.mfaTotp?.siteSettings;
             expect(s.loginUrl, 'blank login URL should clear to null').to.be.null;
@@ -112,12 +109,12 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
     it('rejects absolute / protocol-relative / scheme login URLs (open-redirect guard)', () => {
         ['https://attacker.example/phish', '//attacker.example', 'javascript:alert(1)', 'sites/no-leading-slash']
             .forEach(bad => {
-                setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false, loginUrl: bad}).then(res => {
+                setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: bad}).then(res => {
                     expect(firstErrorMessage(res), `"${bad}" must be rejected`).to.match(/invalid_url/);
                 });
             });
         // Same guard applies to the logout URL.
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false, logoutUrl: 'https://attacker.example'}).then(res => {
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, logoutUrl: 'https://attacker.example'}).then(res => {
             expect(firstErrorMessage(res), 'absolute logout URL must be rejected').to.match(/invalid_url/);
         });
         // A rejected save must not have persisted anything.
@@ -128,22 +125,12 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
         });
     });
 
-    it('rejects a grace period above 365 days (policy-bypass guard)', () => {
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 99999}).then(res => {
-            expect(firstErrorMessage(res), 'huge graceDays must be rejected').to.match(/invalid_grace_days/);
-        });
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: true, graceDays: 365}).then(res => {
-            const s = res?.data?.upa?.mfaFactors?.totp?.setSiteSettings;
-            expect(s.graceDays, 'the documented maximum must be accepted').to.eq(365);
-        });
-    });
-
     it('denies setSiteSettings to a non site-admin user', () => {
         const usr = jfaker.internet.username();
         const pwd = jfaker.internet.password();
         createUser(usr, pwd);
         cy.apolloClient({username: usr, password: pwd});
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false}).then(res => {
+        setSiteSettings({siteKey: SITE_KEY, enabled: true}).then(res => {
             expect(firstErrorMessage(res), 'non-admin must be denied').to.match(/permission_denied|not_authenticated/);
         });
         cy.apolloClient(ROOT);
@@ -183,7 +170,7 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
 
     it('records audit events and produces an enrollment report', () => {
         // Generate at least one auditable admin action.
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, enforced: false, graceDays: 0, enabledGroups: []});
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enabledGroups: []});
 
         auditEvents(SITE_KEY).then(res => {
             const events = res?.data?.mfaTotp?.auditEvents;
