@@ -60,5 +60,8 @@
     "factor.totp.force_not_allowed": "Re-enrollment is not allowed here. Please sign in first.",
     "factor.webauthn.locked_out": "Too many failed attempts. Please try again later.",
     "factor.webauthn.not_authenticated": "Authentication required. Please sign in again.",
-    "factor.webauthn.internal_error": "An internal error occurred. Please try again."
+    "factor.webauthn.internal_error": "An internal error occurred. Please try again.",
+    "factor.webauthn.not_registered": "No security key or passkey is registered for this account.",
+    "factor.webauthn.no_registration_state": "The registration session has expired. Please try again.",
+    "factor.webauthn.registration_failed": "The server rejected this authenticator. Please try again or contact your administrator."
 }
