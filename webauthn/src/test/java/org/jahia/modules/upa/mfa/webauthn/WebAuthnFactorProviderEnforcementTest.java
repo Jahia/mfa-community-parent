@@ -133,6 +133,38 @@ public class WebAuthnFactorProviderEnforcementTest {
         }
     }
 
+    // --- no-site-context rows (vanity URLs hide the /sites/<key> prefix) -------------------
+
+    @Test
+    public void noSite_enforced_nothingConfigured_throwsRegistrationRequiredWithOffer() {
+        configurePolicy("webauthn", "0");
+        credentialStore.registered = false;
+        session = new MfaSession(new MfaSessionContext(
+                USER_ID, Locale.ENGLISH, null, false, Arrays.asList("webauthn")));
+        provider.bindSiteProvider(siblingProvider("webauthn", false, true));
+        try {
+            provider.prepare(ctx());
+            fail("expected registration_required");
+        } catch (MfaException e) {
+            assertEquals(WebAuthnFactorProvider.ERROR_REGISTRATION_REQUIRED, e.getCode());
+            assertEquals("webauthn", e.getArguments().get("enrollableFactors"));
+        }
+    }
+
+    @Test
+    public void noSite_notEnforced_unregistered_throwsNotRegistered() {
+        configurePolicy("", null);
+        credentialStore.registered = false;
+        session = new MfaSession(new MfaSessionContext(
+                USER_ID, Locale.ENGLISH, null, false, Arrays.asList("webauthn")));
+        try {
+            provider.prepare(ctx());
+            fail("expected not_registered (legacy no-site behavior without enforcement)");
+        } catch (MfaException e) {
+            assertEquals(WebAuthnFactorProvider.ERROR_NOT_REGISTERED, e.getCode());
+        }
+    }
+
     @Test
     public void enforced_nothingConfigured_graceExpired_throwsRegistrationRequired() {
         configurePolicy("webauthn", "1");

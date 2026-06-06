@@ -161,6 +161,39 @@ public class TotpFactorProviderEnforcementTest {
         }
     }
 
+    // --- no-site-context rows (vanity URLs hide the /sites/<key> prefix) -------------------
+
+    @Test
+    public void noSite_enforced_nothingConfigured_throwsEnrollmentRequiredWithOffer() {
+        configurePolicy("totp", "0");
+        userStore.enrolled = false;
+        session = new MfaSession(new MfaSessionContext(
+                USER_ID, Locale.ENGLISH, null, false, Arrays.asList("totp")));
+        provider.bindSiteProvider(siblingProvider("totp", false, true));
+        try {
+            provider.prepare(ctx());
+            fail("expected enrollment_required");
+        } catch (MfaException e) {
+            assertEquals(TotpFactorProvider.ERROR_ENROLLMENT_REQUIRED, e.getCode());
+            assertEquals("without a site, installed enforced factors are offered",
+                    "totp", e.getArguments().get("enrollableFactors"));
+        }
+    }
+
+    @Test
+    public void noSite_notEnforced_unenrolled_throwsNotEnrolled() {
+        configurePolicy("", null);
+        userStore.enrolled = false;
+        session = new MfaSession(new MfaSessionContext(
+                USER_ID, Locale.ENGLISH, null, false, Arrays.asList("totp")));
+        try {
+            provider.prepare(ctx());
+            fail("expected not_enrolled (legacy no-site behavior without enforcement)");
+        } catch (MfaException e) {
+            assertEquals(TotpFactorProvider.ERROR_NOT_ENROLLED, e.getCode());
+        }
+    }
+
     @Test
     public void enforced_nothingConfigured_graceExpired_throwsEnrollmentRequired() {
         configurePolicy("totp", "1");

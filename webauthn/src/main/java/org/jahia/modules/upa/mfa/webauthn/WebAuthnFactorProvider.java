@@ -114,11 +114,38 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
             return prepareForSite(preparationContext, userId, siteKey);
         }
 
-        // No site context → require a registered user.
+        // No site context: per-site activation cannot be evaluated, but GLOBAL enforcement still
+        // applies — an unconfigured user must reach inline registration here too (the login page
+        // may be served under a vanity URL that carries no /sites/<key> prefix). Without
+        // enforcement, the original behavior stands: a registered user is challenged, an
+        // unregistered one is rejected.
+        if (globalPolicy.isEnforced(FACTOR_TYPE)) {
+            return prepareForGlobalOnly(preparationContext, userId);
+        }
         if (!isRegistered(userId)) {
             throw new MfaException(ERROR_NOT_REGISTERED, "user", userId);
         }
         return startAssertion(userId);
+    }
+
+    /**
+     * The enforced decision rows when no site context is available (pick-one semantics minus
+     * the per-site activation/scoping rows).
+     */
+    private Serializable prepareForGlobalOnly(PreparationContext preparationContext, String userId)
+            throws MfaException {
+        if (anotherEnforcedFactorVerified(preparationContext)) {
+            logger.debug("WebAuthn skipped for user {} (another enforced factor already verified)", userId);
+            return new WebAuthnPreparationResult(true);
+        }
+        if (isRegistered(userId)) {
+            return startAssertion(userId);
+        }
+        if (anotherEnforcedFactorConfigured(userId)) {
+            logger.debug("WebAuthn skipped for user {} (another enforced factor is configured)", userId);
+            return new WebAuthnPreparationResult(true);
+        }
+        return prepareNoEnforcedFactor(userId, null);
     }
 
     /**
@@ -218,7 +245,8 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
 
     /**
      * The factors offered for inline enrollment on {@code siteKey}: the globally enforced factors
-     * that are enabled on this site. A provider that cannot answer is simply not offered.
+     * that are enabled on this site (or simply installed, when no site context is available).
+     * A provider that cannot answer is simply not offered.
      */
     private String enrollableFactorsForSite(String siteKey) {
         List<String> offered = new ArrayList<>();
@@ -228,7 +256,7 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
                     continue;
                 }
                 try {
-                    if (provider.isEnabledForSite(siteKey)) {
+                    if (StringUtils.isBlank(siteKey) || provider.isEnabledForSite(siteKey)) {
                         offered.add(factor);
                     }
                 } catch (RuntimeException e) {

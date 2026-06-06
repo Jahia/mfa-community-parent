@@ -129,11 +129,38 @@ public class TotpFactorProvider implements MfaFactorProvider {
             return prepareForSite(preparationContext, userId, siteKey);
         }
 
-        // No site context → original behavior: require an enrolled user.
+        // No site context: per-site activation cannot be evaluated, but GLOBAL enforcement still
+        // applies — an unconfigured user must reach inline enrollment here too (the login page
+        // may be served under a vanity URL that carries no /sites/<key> prefix). Without
+        // enforcement, the original behavior stands: an enrolled user is challenged, an
+        // unenrolled one is rejected.
+        if (globalPolicy.isEnforced(FACTOR_TYPE)) {
+            return prepareForGlobalOnly(preparationContext, userId);
+        }
         if (!isEnrolled(userId)) {
             throw new MfaException(ERROR_NOT_ENROLLED, "user", userId);
         }
         return new TotpPreparationResult();
+    }
+
+    /**
+     * The enforced decision rows when no site context is available (pick-one semantics minus
+     * the per-site activation/scoping rows).
+     */
+    private Serializable prepareForGlobalOnly(PreparationContext preparationContext, String userId)
+            throws MfaException {
+        if (anotherEnforcedFactorVerified(preparationContext)) {
+            logger.debug("TOTP skipped for user {} (another enforced factor already verified)", userId);
+            return new TotpPreparationResult(true);
+        }
+        if (isEnrolled(userId)) {
+            return new TotpPreparationResult();
+        }
+        if (anotherEnforcedFactorConfigured(userId)) {
+            logger.debug("TOTP skipped for user {} (another enforced factor is configured)", userId);
+            return new TotpPreparationResult(true);
+        }
+        return prepareNoEnforcedFactor(userId, null);
     }
 
     /**
@@ -246,7 +273,8 @@ public class TotpFactorProvider implements MfaFactorProvider {
 
     /**
      * The factors offered for inline enrollment on {@code siteKey}: the globally enforced factors
-     * that are enabled on this site. A provider that cannot answer is simply not offered.
+     * that are enabled on this site (or simply installed, when no site context is available).
+     * A provider that cannot answer is simply not offered.
      */
     private String enrollableFactorsForSite(String siteKey) {
         List<String> offered = new ArrayList<>();
@@ -256,7 +284,7 @@ public class TotpFactorProvider implements MfaFactorProvider {
                     continue;
                 }
                 try {
-                    if (provider.isEnabledForSite(siteKey)) {
+                    if (StringUtils.isBlank(siteKey) || provider.isEnabledForSite(siteKey)) {
                         offered.add(factor);
                     }
                 } catch (RuntimeException e) {

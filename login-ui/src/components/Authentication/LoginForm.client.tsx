@@ -37,7 +37,9 @@ export default function LoginForm(props: Readonly<LoginFormProps>) {
     if (inProgress) return;
     setInProgress(true);
 
-    const site = extractSiteKeyFromUrl();
+    // The server-resolved site key is authoritative; the URL heuristic only works for
+    // /sites/<key>/... paths and fails on vanity/server-name URLs.
+    const site = props.content.siteKey || extractSiteKeyFromUrl();
 
     // No "remember me" option: always a session-scoped login (no persistent auth cookie).
     initiate(apiRoot, username, password, false, site)

@@ -21,6 +21,7 @@ jahiaComponent(
     const apiRoot = buildEndpointUrl("/modules/graphql");
     const content: Props = {
       contextPath: renderContext.getRequest().getContextPath(),
+      siteKey: renderContext.getSite().getSiteKey(),
       loginEmailFieldLabel: props.loginEmailFieldLabel,
       loginPasswordFieldLabel: props.loginPasswordFieldLabel,
       loginSubmitButtonLabel: props.loginSubmitButtonLabel,
