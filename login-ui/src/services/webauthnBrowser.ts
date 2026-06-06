@@ -68,3 +68,36 @@ export async function getAssertion(requestOptionsJson: string): Promise<string> 
     clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
   });
 }
+
+/**
+ * Run a registration ceremony from the server's creation-options JSON and return the response
+ * JSON string for the finishRegistration mutation. Throws (NotAllowedError) if the user cancels
+ * or it times out. Mirrors {@link getAssertion} for navigator.credentials.create().
+ */
+export async function createCredential(creationOptionsJson: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const options: any = JSON.parse(creationOptionsJson).publicKey;
+  options.challenge = b64uToBuf(options.challenge);
+  options.user = { ...options.user, id: b64uToBuf(options.user.id) };
+  if (options.excludeCredentials) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    options.excludeCredentials = options.excludeCredentials.map((c: any) => ({
+      ...c,
+      id: b64uToBuf(c.id),
+    }));
+  }
+
+  const cred = (await navigator.credentials.create({ publicKey: options })) as PublicKeyCredential;
+  const response = cred.response as AuthenticatorAttestationResponse;
+  return JSON.stringify({
+    id: cred.id,
+    rawId: bufToB64u(cred.rawId),
+    type: cred.type,
+    response: {
+      attestationObject: bufToB64u(response.attestationObject),
+      clientDataJSON: bufToB64u(response.clientDataJSON),
+      transports: typeof response.getTransports === "function" ? response.getTransports() : [],
+    },
+    clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+  });
+}

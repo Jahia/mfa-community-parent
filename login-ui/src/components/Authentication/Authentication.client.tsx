@@ -5,6 +5,9 @@ import TotpCodeVerificationForm from "./TotpCodeVerificationForm.client";
 import EmailCodeVerificationForm from "./EmailCodeVerificationForm.client";
 import WebauthnVerificationForm from "./WebauthnVerificationForm.client";
 import FactorChooser from "./FactorChooser.client";
+import EnrollmentChooser from "./EnrollmentChooser.client";
+import TotpEnrollmentForm from "./TotpEnrollmentForm.client";
+import WebauthnRegistrationForm from "./WebauthnRegistrationForm.client";
 import type { Props } from "./types";
 import { redirect } from "../../services";
 import FatalErrorScreen from "./FatalErrorScreen.client";
@@ -14,6 +17,7 @@ enum Step {
   LOGIN,
   CHOOSE_FACTOR,
   VERIFY,
+  ENROLL,
   COMPLETE,
   FATAL_ERROR,
 }
@@ -29,10 +33,23 @@ export default function Authentication({
   const [fatalError, setFatalError] = useState<MfaError | undefined>(undefined);
   const [availableFactors, setAvailableFactors] = useState<string[]>([]);
   const [activeFactor, setActiveFactor] = useState<string | null>(null);
+  const [enrollableFactors, setEnrollableFactors] = useState<string[]>([]);
+  const [enrollFactor, setEnrollFactor] = useState<string | null>(null);
 
-  const onVerifySuccess = () => {
-    setStep(Step.COMPLETE);
-    redirect(content.contextPath);
+  /**
+   * A factor finished (verified or drained). With other factors still required, continue the
+   * flow — pick-one enforcement makes the leftovers skip server-side, so they drain quickly.
+   * With nothing left, the session is complete and the auth cookie is set: leave.
+   */
+  const onFactorCompleted = (remainingFactors: string[]) => {
+    if (remainingFactors.length === 0) {
+      setStep(Step.COMPLETE);
+      redirect(content.contextPath);
+      return;
+    }
+    setAvailableFactors(remainingFactors);
+    setActiveFactor(remainingFactors[0]);
+    setStep(Step.VERIFY);
   };
 
   const onResetFlow = () => {
@@ -40,6 +57,8 @@ export default function Authentication({
     setFatalError(undefined);
     setAvailableFactors([]);
     setActiveFactor(null);
+    setEnrollableFactors([]);
+    setEnrollFactor(null);
   };
 
   const onLoginSuccess = ({ remainingFactors }: { username: string; remainingFactors: string[] }) => {
@@ -63,6 +82,29 @@ export default function Authentication({
     setStep(Step.FATAL_ERROR);
   };
 
+  /**
+   * Enforcement is active but the user has none of the enforced factors configured: switch to
+   * inline enrollment. The server lists the factors the user may set up (enforced ∩ enabled on
+   * this site) in the error's `enrollableFactors` argument.
+   */
+  const onEnrollmentRequired = (error: MfaError) => {
+    const offer = error.arguments?.find((a) => a.name === "enrollableFactors")?.value ?? "";
+    const factors = offer.split(",").map((f) => f.trim()).filter(Boolean);
+    const fallback = activeFactor ? [activeFactor] : [];
+    const offered = factors.length > 0 ? factors : fallback;
+    if (offered.length === 0) {
+      onFatalError(error);
+      return;
+    }
+    setEnrollableFactors(offered);
+    setEnrollFactor(offered.length === 1 ? offered[0] : null);
+    setStep(Step.ENROLL);
+  };
+
+  const onEnrollFactorPicked = (factor: string) => {
+    setEnrollFactor(factor);
+  };
+
   // Dispatch to the right verification form. Unknown factor types fall back to a
   // FatalErrorScreen with a clear error code so the user can restart cleanly.
   const renderVerificationForm = () => {
@@ -71,17 +113,19 @@ export default function Authentication({
         return (
           <TotpCodeVerificationForm
             content={content}
-            onSuccess={onVerifySuccess}
+            onSuccess={onFactorCompleted}
+            onEnrollmentRequired={onEnrollmentRequired}
             onFatalError={onFatalError}
           />
         );
       case "email_code":
-        return <EmailCodeVerificationForm onSuccess={onVerifySuccess} onFatalError={onFatalError} />;
+        return <EmailCodeVerificationForm onSuccess={onFactorCompleted} onFatalError={onFatalError} />;
       case "webauthn":
         return (
           <WebauthnVerificationForm
             content={content}
-            onSuccess={onVerifySuccess}
+            onSuccess={onFactorCompleted}
+            onEnrollmentRequired={onEnrollmentRequired}
             onFatalError={onFatalError}
           />
         );
@@ -89,6 +133,26 @@ export default function Authentication({
         return (
           <FatalErrorScreen
             error={{ code: "factor_type_not_supported", arguments: [{ name: "factorType", value: activeFactor ?? "" }] }}
+            onResetFlow={onResetFlow}
+          />
+        );
+    }
+  };
+
+  // Inline enrollment: a chooser when several factors are offered, then the factor's setup form.
+  const renderEnrollment = () => {
+    if (!enrollFactor) {
+      return <EnrollmentChooser factors={enrollableFactors} onSelect={onEnrollFactorPicked} />;
+    }
+    switch (enrollFactor) {
+      case "totp":
+        return <TotpEnrollmentForm onComplete={onFactorCompleted} onFatalError={onFatalError} />;
+      case "webauthn":
+        return <WebauthnRegistrationForm onComplete={onFactorCompleted} onFatalError={onFatalError} />;
+      default:
+        return (
+          <FatalErrorScreen
+            error={{ code: "factor_type_not_supported", arguments: [{ name: "factorType", value: enrollFactor }] }}
             onResetFlow={onResetFlow}
           />
         );
@@ -104,7 +168,7 @@ export default function Authentication({
         <LoginForm
           content={content}
           onSuccess={onLoginSuccess}
-          onAllFactorsCompleted={onVerifySuccess}
+          onAllFactorsCompleted={() => onFactorCompleted([])}
           onFatalError={onFatalError}
         />
       )}
@@ -112,6 +176,7 @@ export default function Authentication({
         <FactorChooser factors={availableFactors} onSelect={onFactorPicked} />
       )}
       {step === Step.VERIFY && renderVerificationForm()}
+      {step === Step.ENROLL && renderEnrollment()}
     </ApiRootContext>
   );
 }

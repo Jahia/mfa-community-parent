@@ -22,6 +22,21 @@ export interface BaseError {
 }
 
 /**
+ * Extracts an MFA error code from a top-level GraphQL error (a server-side
+ * DataFetchingException carries the error code as its message). Returns null when the
+ * response has no top-level errors.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function topLevelError(result: any): MfaError | null {
+  const message: string | undefined = result?.errors?.[0]?.message;
+  if (!message) {
+    return null;
+  }
+  const match = /factor\.[a-z0-9_.]+/.exec(message);
+  return { code: match ? match[0] : "unexpected_error" };
+}
+
+/**
  * Creates an error response based on provided session and factor errors.
  * If neither session nor factor errors are provided, an "unexpected_error" error is returned
  * with a fatal flag set to true.

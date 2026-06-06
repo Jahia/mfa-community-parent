@@ -11,7 +11,8 @@ import { submitOnEnter } from "./formKeyboard";
 
 interface TotpCodeVerificationFormProps {
   content: Props;
-  onSuccess: () => void;
+  onSuccess: (remainingFactors: string[]) => void;
+  onEnrollmentRequired: (error: MfaError) => void;
   onFatalError: (error: MfaError) => void;
 }
 
@@ -31,18 +32,30 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
   const prepareFactor = () => {
     prepareTotpFactor(apiRoot)
       .then((result) => {
+        if (result.success && result.skipped) {
+          // The factor does not apply to this session (pick-one enforcement satisfied by
+          // another factor, site disabled, …) — drain it with an empty verify and move on.
+          return verifyTotpFactor(apiRoot, "").then((drained) => {
+            if (drained.success) {
+              props.onSuccess(drained.remainingFactors);
+            } else {
+              props.onFatalError(drained.error);
+            }
+          });
+        }
         if (result.success) {
           setError("");
         } else if (result.error?.code === "factor.totp.enrollment_required") {
-          // Site enforces TOTP and the user hasn't enrolled — bounce them to the
-          // dashboard enrollment page. They'll come back here after enrolment.
-          window.location.assign(props.content.contextPath + "/jahia/dashboard/mfa-factors-totp");
+          // Enforcement is active and the user has no enforced factor configured —
+          // switch to the inline enrollment step (the error carries the offered factors).
+          props.onEnrollmentRequired(result.error);
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
           const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
           setError(t(key, interpolation));
         }
+        return undefined;
       })
       .finally(() => {
         setLoading(false);
@@ -91,7 +104,7 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
       .then((result) => {
         if (result.success) {
           setError("");
-          props.onSuccess();
+          props.onSuccess(result.remainingFactors);
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {

@@ -1,6 +1,9 @@
 import { type BaseError, type BaseSuccess, createError } from "./common";
 
-type PrepareTotpFactorResultSuccess = BaseSuccess;
+interface PrepareTotpFactorResultSuccess extends BaseSuccess {
+  /** True when the factor does not apply to this session — drain it with verify(""). */
+  skipped: boolean;
+}
 type PrepareTotpFactorResultError = BaseError;
 export type PrepareTotpFactorResult =
   | PrepareTotpFactorResultSuccess
@@ -24,6 +27,7 @@ export default async function prepareTotpFactor(
             mfaFactors {
               totp {
                 prepare {
+                  skipped
                   session {
                     initiated
                     remainingFactors
@@ -61,6 +65,7 @@ export default async function prepareTotpFactor(
   if (success) {
     return {
       success: true,
+      skipped: Boolean(preparation.skipped),
       remainingFactors: preparation.session.remainingFactors,
     };
   } else {

@@ -11,7 +11,8 @@ import type { MfaError } from "../../services/common";
 
 interface WebauthnVerificationFormProps {
   content: Props;
-  onSuccess: () => void;
+  onSuccess: (remainingFactors: string[]) => void;
+  onEnrollmentRequired: (error: MfaError) => void;
   onFatalError: (error: MfaError) => void;
 }
 
@@ -44,18 +45,31 @@ export default function WebauthnVerificationForm(props: Readonly<WebauthnVerific
 
     prepareWebauthnFactor(apiRoot)
       .then((result) => {
+        if (result.success && result.skipped) {
+          // The factor does not apply to this session (pick-one enforcement satisfied by
+          // another factor, site disabled, …) — drain it with an empty verify and move on.
+          return verifyWebauthnFactor(apiRoot, "").then((drained) => {
+            if (drained.success) {
+              props.onSuccess(drained.remainingFactors);
+            } else {
+              props.onFatalError(drained.error);
+            }
+          });
+        }
         if (result.success) {
           requestOptionsRef.current = result.requestOptionsJson;
           setError("");
         } else if (result.error?.code === "factor.webauthn.registration_required") {
-          // Site enforces WebAuthn and the user has no authenticator — bounce them to register.
-          window.location.assign(props.content.contextPath + "/jahia/dashboard/mfa-factors-webauthn");
+          // Enforcement is active and the user has no enforced factor configured —
+          // switch to the inline enrollment step (the error carries the offered factors).
+          props.onEnrollmentRequired(result.error);
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
           const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
           setError(t(key, interpolation));
         }
+        return undefined;
       })
       .finally(() => setLoading(false));
     // Intentionally run once on mount.
@@ -73,7 +87,7 @@ export default function WebauthnVerificationForm(props: Readonly<WebauthnVerific
       const assertion = await getAssertion(requestOptionsRef.current);
       const result = await verifyWebauthnFactor(apiRoot, assertion);
       if (result.success) {
-        props.onSuccess();
+        props.onSuccess(result.remainingFactors);
       } else if (result?.fatalError) {
         props.onFatalError(result.error);
       } else {

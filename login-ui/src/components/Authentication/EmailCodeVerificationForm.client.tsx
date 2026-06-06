@@ -9,7 +9,7 @@ import type { MfaError } from "../../services/common";
 import { submitOnEnter } from "./formKeyboard";
 
 interface EmailCodeVerificationFormProps {
-  onSuccess: () => void;
+  onSuccess: (remainingFactors: string[]) => void;
   onFatalError: (error: MfaError) => void;
 }
 
@@ -69,7 +69,7 @@ export default function EmailCodeVerificationForm(
       .then((result) => {
         if (result.success) {
           setError("");
-          props.onSuccess();
+          props.onSuccess(result.remainingFactors);
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {

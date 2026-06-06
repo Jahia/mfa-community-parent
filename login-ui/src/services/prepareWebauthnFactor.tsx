@@ -1,14 +1,18 @@
 import { type BaseError, type BaseSuccess, createError } from "./common";
 
 interface PrepareWebauthnFactorResultSuccess extends BaseSuccess {
-  /** The navigator.credentials.get() options JSON the browser must consume. */
-  requestOptionsJson: string;
+  /** The navigator.credentials.get() options JSON, or null when the factor was skipped. */
+  requestOptionsJson: string | null;
+  /** True when the factor does not apply to this session — drain it with verify(""). */
+  skipped: boolean;
 }
 export type PrepareWebauthnFactorResult = PrepareWebauthnFactorResultSuccess | BaseError;
 
 /**
  * Calls {@code webauthn.prepare}, which starts an assertion ceremony server-side and returns the
- * PublicKeyCredentialRequestOptions (challenge + allowed credentials) for the browser.
+ * PublicKeyCredentialRequestOptions (challenge + allowed credentials) for the browser. When the
+ * factor is skipped for this session (pick-one enforcement satisfied elsewhere, site disabled…)
+ * there are no options and {@code skipped} is true.
  */
 export default async function prepareWebauthnFactor(
   apiRoot: string,
@@ -24,6 +28,7 @@ export default async function prepareWebauthnFactor(
               webauthn {
                 prepare {
                   publicKeyCredentialRequestOptions
+                  skipped
                   session {
                     initiated
                     remainingFactors
@@ -47,12 +52,13 @@ export default async function prepareWebauthnFactor(
   const success =
     preparation?.session?.factorState?.prepared &&
     !preparation?.session?.factorState?.error &&
-    preparation?.publicKeyCredentialRequestOptions;
+    (preparation?.publicKeyCredentialRequestOptions || preparation?.skipped);
   if (success) {
     return {
       success: true,
+      skipped: Boolean(preparation.skipped),
       remainingFactors: preparation.session.remainingFactors,
-      requestOptionsJson: preparation.publicKeyCredentialRequestOptions,
+      requestOptionsJson: preparation.publicKeyCredentialRequestOptions ?? null,
     };
   }
 
