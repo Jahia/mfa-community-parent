@@ -7,9 +7,13 @@ that share one sign-in UI:
 
 | Module | artifactId | What it adds |
 | --- | --- | --- |
-| `totp/` | `mfa-factors-totp` | TOTP (RFC 6238) factor: authenticator-app codes + one-shot backup codes; per-site policy, `/cms/login` gate, login/logout URL provider. |
+| `extensions/` | `mfa-factors-extensions` | Shared, factor-agnostic infrastructure: the `/cms/login` gate, the login/logout URL provider, the backup-code generator, and the `MfaSiteProvider` SPI each factor implements. Has no UI. |
+| `totp/` | `mfa-factors-totp` | TOTP (RFC 6238) factor: authenticator-app codes + one-shot backup codes; per-site policy. |
 | `webauthn/` | `mfa-factors-webauthn` | WebAuthn / FIDO2 factor: passkeys, security keys, platform authenticators (fingerprint/face). Phishing-resistant, origin-bound. Built on `com.yubico:webauthn-server-core` (embedded). |
 | `login-ui/` | `mfa-factors-login-ui` | Shared JS-SDK sign-in UI: username/password → factor chooser → TOTP / WebAuthn / email verification. |
+
+The reactor root is `mfa-community-parent`. The two factor modules (`totp`, `webauthn`) depend on
+`mfa-factors-extensions` (`jahia-depends`), which therefore starts first.
 
 Each factor ships its own self-service dashboard panel and per-site administration page
 (enable / enforce / grace period / group scoping, user reset, audit + enrollment report).
@@ -24,6 +28,9 @@ Each factor ships its own self-service dashboard panel and per-site administrati
 ## Installation
 
 1. Build the project (`mvn clean install` at the repo root builds all modules):
+   - `extensions/target/mfa-factors-extensions-<version>.jar` &mdash; the shared infrastructure
+     bundle (the `/cms/login` gate, login/logout URL provider, backup-code generator). Required
+     by both factor bundles; deploy it too.
    - `totp/target/mfa-factors-totp-<version>.jar` &mdash; the TOTP OSGi factor bundle.
    - `webauthn/target/mfa-factors-webauthn-<version>.jar` &mdash; the WebAuthn OSGi factor
      bundle (a ~6&nbsp;MB fat bundle; it embeds the yubico WebAuthn library).
@@ -41,26 +48,37 @@ Each factor ships its own self-service dashboard panel and per-site administrati
 
 ## Configuration
 
-The module ships a single OSGi authorization configuration that grants the GraphQL types
-to all callers (the actual authentication / rate limiting happens at the resolver level):
+The **shared infrastructure** is configured under PID `org.jahia.modules.mfa.extensions`
+(shipped by the extensions bundle):
 
-- `totp/src/main/resources/META-INF/configurations/org.jahia.bundles.api.authorization-mfa-factors-totp.yml`
-
-It also ships an editable Karaf configuration (PID `org.jahia.modules.totp`):
-
-- `totp/src/main/resources/META-INF/configurations/org.jahia.modules.totp.cfg`
+- `extensions/src/main/resources/META-INF/configurations/org.jahia.modules.mfa.extensions.cfg`
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `loginUrl` | _(empty)_ | **Global default** login URL. When resolved, `MfaTotpLoginLogoutProvider` makes Jahia redirect unauthenticated users to this page instead of `/cms/login` — point it at the page that renders the `totpui:authentication` login UI (e.g. `/sites/mySite/login.html`). |
+| `loginUrl` | _(empty)_ | **Global default** login URL. When resolved, `MfaLoginLogoutProvider` makes Jahia redirect unauthenticated users to this page instead of `/cms/login` — point it at the page that renders the `totpui:authentication` login UI (e.g. `/sites/mySite/login.html`). |
 | `logoutUrl` | _(empty)_ | **Global default** custom sign-out page. |
 | `loginGate.enabled` | `false` | Master switch for the `/cms/login` gate (see below). |
 | `loginGate.ipWhitelist` | _(empty)_ | Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate (e.g. `203.0.113.7, 10.0.0.0/8, 2001:db8::/32`). |
+
+Each **factor** keeps its own PID for factor-specific keys. TOTP (`org.jahia.modules.totp`,
+shipped by `totp/src/main/resources/META-INF/configurations/org.jahia.modules.totp.cfg`):
+
+| Key | Default | Effect |
+| --- | --- | --- |
 | `secret.encryption.key` | _(empty)_ | Base64 256-bit AES key for encrypting TOTP secrets at rest. Empty = a key is auto-generated and persisted under `<jahiaVarDir>/mfa-factors/secret.key`. |
 
-`MfaTotpLoginLogoutProvider` implements Jahia's `LoginUrlProvider` / `LogoutUrlProvider` SPI.
-URLs are resolved **per request** with this precedence: a **per-site** `loginUrl` / `logoutUrl`
-(set from the site's *Two-factor authentication* administration page, stored on the
+> **Migration note:** the `loginUrl` / `logoutUrl` and `loginGate.*` keys moved from
+> `org.jahia.modules.totp` to `org.jahia.modules.mfa.extensions`. Existing deployments must
+> copy any customized values to the new PID.
+
+Each module also ships an OSGi authorization configuration granting its GraphQL types to all
+callers (the actual authentication / rate limiting happens at the resolver level), e.g.
+`totp/src/main/resources/META-INF/configurations/org.jahia.bundles.api.authorization-mfa-factors-totp.yml`.
+
+`MfaLoginLogoutProvider` (in the extensions bundle) implements Jahia's `LoginUrlProvider` /
+`LogoutUrlProvider` SPI. URLs are resolved **per request** with this precedence: a **per-site**
+`loginUrl` / `logoutUrl` reported by any factor through the `MfaSiteProvider` SPI (TOTP surfaces
+the values set from the site's *Two-factor authentication* administration page, stored on the
 `upaTotp:siteSettings` mixin) → the **global** `.cfg` value above → Jahia's default. When nothing
 is configured for a site the provider returns nothing, so deploying the module never hijacks
 login on its own. Global `.cfg` edits are applied live (no restart); per-site values take effect
@@ -79,14 +97,15 @@ silently disable enforcement forever).
 ### The `/cms/login` gate
 
 Jahia's legacy `/cms/login` endpoint authenticates with username/password only — it never
-consults MFA factors. On a site that **enforces** TOTP enrollment it is therefore a complete
-second-factor bypass. `TotpLoginGateFilter` (a Jahia `AbstractServletFilter` running before
-the authentication valve, so blocked requests never get a session) closes it:
+consults MFA factors. On a site that **enforces** enrollment for any factor it is therefore a
+complete second-factor bypass. `MfaLoginGateFilter` (in the extensions bundle; a Jahia
+`AbstractServletFilter` running before the authentication valve, so blocked requests never get a
+session) closes it. It is factor-agnostic — it aggregates over every factor's `MfaSiteProvider`:
 
 - requests carrying a site context (`?site=<key>` parameter or the `siteKey` request
-  attribute) are gated when **that site** has TOTP enabled + enforced;
+  attribute) are gated when **that site** has **any** factor enabled + enforced;
 - requests with no site context — the common case — are gated when **any** site enforces
-  enrollment (`/cms/login` authenticates globally, so one enforcing site is enough);
+  enrollment for **any** factor (`/cms/login` authenticates globally, so one enforcing site is enough);
 - gated requests get **HTTP 403** unless the client IP matches `loginGate.ipWhitelist`,
   keeping an emergency/back-office door (e.g. your VPN range).
 

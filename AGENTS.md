@@ -6,13 +6,23 @@ Keep edits minimal and consistent with the conventions below.
 ## Project type
 
 Third-party Jahia 8.2 **multi-module Maven project** (root `pom.xml` is a `packaging=pom`
-aggregator, mirroring UPA's layout). It has two modules:
+aggregator with artifactId `mfa-community-parent`, mirroring UPA's layout). It has four modules:
 
-- **`totp/`** &mdash; the OSGi bundle (`packaging=bundle`, artifactId `mfa-factors-totp`).
+- **`extensions/`** &mdash; an OSGi bundle (`packaging=bundle`, artifactId
+  `mfa-factors-extensions`, no UI) holding the shared, factor-agnostic infrastructure: the
+  `/cms/login` gate (`MfaLoginGateFilter`), the login/logout URL provider
+  (`MfaLoginLogoutProvider`), the backup-code generator (`BackupCodes`), the open-redirect URL
+  guard (`MfaUrls`), and the `MfaSiteProvider` SPI each factor implements. The factor bundles
+  depend on it (`jahia-depends`), so it starts first.
+- **`totp/`** &mdash; an OSGi bundle (`packaging=bundle`, artifactId `mfa-factors-totp`).
   Implements the `MfaFactorProvider` SPI exposed by the
   [User Password Authentication (UPA)](https://github.com/Jahia/user-password-authentication)
   module, contributes a TOTP factor to UPA's MFA pipeline, and bundles the self-service
-  dashboard + per-site admin React UIs (webpack/Module Federation).
+  dashboard + per-site admin React UIs (webpack/Module Federation). Registers a `TotpSiteProvider`
+  so the shared gate/provider see its per-site policy and URLs.
+- **`webauthn/`** &mdash; an OSGi bundle (`packaging=bundle`, artifactId `mfa-factors-webauthn`)
+  adding a WebAuthn / FIDO2 factor (embeds `com.yubico:webauthn-server-core`). Registers a
+  `WebAuthnSiteProvider` (enforcement only).
 - **`login-ui/`** &mdash; a Jahia JS-SDK module (`packaging=pom`, produces a `.tgz` via Vite)
   providing the sign-in template (`totpui:authentication`) with a factor chooser.
 
@@ -26,29 +36,44 @@ sync with that document; do not duplicate its contents inside the module.
 ## Repo layout
 
 ```
-pom.xml                            Root aggregator (packaging=pom): <modules>factor, login-ui</modules>.
-totp/                            OSGi bundle module (artifactId mfa-factors-totp).
+pom.xml                            Root aggregator (packaging=pom, mfa-community-parent): <modules>extensions, totp, webauthn, login-ui</modules>.
+extensions/                        Shared OSGi bundle (artifactId mfa-factors-extensions, no UI).
+  src/main/java/org/jahia/modules/upa/mfa/extensions/
+    MfaSiteProvider.java             SPI: factors expose per-site enforcement + login/logout URLs to the shared code.
+    BackupCodes.java                 Generates, PBKDF2-hashes, and constant-time-verifies backup codes.
+    MfaUrls.java                     Open-redirect-safe server-relative URL validation (single chokepoint).
+    internal/
+      MfaLoginGateFilter.java        /cms/login gate (AbstractServletFilter); gates when ANY factor enforces (aggregates MfaSiteProvider).
+      MfaLoginLogoutProvider.java    LoginUrlProvider/LogoutUrlProvider; routes to the MFA login UI (per-site via SPI → global cfg → null).
+  src/main/resources/META-INF/configurations/org.jahia.modules.mfa.extensions.cfg   Gate + global login/logout URL config.
+totp/                              OSGi bundle module (artifactId mfa-factors-totp).
   pom.xml
   src/main/java/org/jahia/modules/upa/mfa/totp/
-    TotpService.java                 RFC 6238 primitive: HOTP/TOTP generation + verification, Base32, otpauth:// URI.
+    TotpService.java                 RFC 6238 primitive: generation + verification, Base32, otpauth:// URI; looksLikeBackupCode heuristic.
     TotpFactorProvider.java          UPA MfaFactorProvider SPI impl (verify at login; consults per-site settings).
     TotpUserStore.java               JCR persistence of per-user settings (secret, hashed backup codes, lastUsedCounter).
-    TotpSiteSettingsStore.java       JCR persistence of per-site settings (enabled / enforced) on the site node.
+    TotpSiteSettingsStore.java       JCR persistence of per-site settings (enabled / enforced / loginUrl / logoutUrl) on the site node.
+    TotpSiteProvider.java            MfaSiteProvider impl: surfaces TOTP enforcement + per-site URLs to the extensions bundle.
     TotpEnrollmentState.java         Transient (in-session) secret + TTL while the user is enrolling.
     TotpPreparationResult.java       MFA "preparation" DTO (carries the per-session "skipped" flag).
     TotpManagementRateLimiter.java   In-memory throttle for management mutations.
-    BackupCodes.java                 Generates, PBKDF2-hashes, and constant-time-verifies backup codes.
     gql/
       TotpFactorMutation.java        Mutations: enroll/confirmEnroll/prepare/verify/regenerateBackupCodes/disable/setSiteSettings.
       TotpFactorQuery.java           Queries: status (per-user) + siteSettings (per-site).
       TotpFactorMutationExtension / TotpFactorQueryExtension   @GraphQLTypeExtension graft points.
-      ExtensionsAutoDiscovery.java   Registers the extensions with graphql-dxm-provider.
+      ExtensionsAutoDiscovery.java   Registers the GraphQL extensions with graphql-dxm-provider.
       Totp*Result.java               Result DTOs.
   src/main/javascript/               Dashboard (self-service) + per-site admin React (webpack/Module Federation).
   src/main/resources/META-INF/
     definitions.cnd                  JCR node types: upaTotp:userSettings (per-user) + upaTotp:siteSettings (per-site).
+    configurations/org.jahia.modules.totp.cfg             TOTP-specific config (secret.encryption.key).
     configurations/...authorization-mfa-factors-totp.yml  Grants GraphQL types.
   src/test/java/...                  JUnit 4 tests.
+webauthn/                          OSGi bundle module (artifactId mfa-factors-webauthn; embeds yubico webauthn-server-core).
+  src/main/java/org/jahia/modules/upa/mfa/webauthn/
+    WebAuthnSiteSettingsStore.java   JCR per-site settings (enabled/enforced); isAnySiteEnforcing() for the shared gate.
+    WebAuthnSiteProvider.java        MfaSiteProvider impl (enforcement only; no per-site URLs).
+    ...                              (relying-party ceremony, user store, GraphQL — mirrors totp's layout).
 login-ui/                          JS-SDK module (Vite → .tgz): totpui:authentication sign-in template + factor chooser.
 tests/                             Cypress / docker-compose E2E harness (isolated Compose project; mirrors UPA's tests/).
 ```
@@ -56,13 +81,15 @@ tests/                             Cypress / docker-compose E2E harness (isolate
 ## Build
 
 ```bash
-mvn clean install        # at the repo root: builds BOTH modules (factor JAR + login-ui .tgz)
+mvn clean install        # at the repo root: builds all modules (extensions + totp + webauthn JARs + login-ui .tgz)
 ```
 
-The root reactor builds `factor` then `login-ui`. Build a single module with
-`mvn -pl factor` (or `-pl login-ui`), optionally `-am`. Requires
-`user-password-authentication-api` (UPA's `api` module) in the local Maven repo or Jahia's
-public Nexus; UPA must be built first when working from a snapshot.
+The root reactor builds `extensions` first (the factor bundles depend on it), then `totp`,
+`webauthn`, `login-ui`. Build a single module with `mvn -pl totp` (or `-pl extensions`,
+`-pl webauthn`, `-pl login-ui`), optionally `-am` to also build its reactor dependencies (totp /
+webauthn need `extensions` installed). Requires `user-password-authentication-api` (UPA's `api`
+module) in the local Maven repo or Jahia's public Nexus; UPA must be built first when working
+from a snapshot.
 
 ## Tests
 
@@ -77,8 +104,9 @@ public Nexus; UPA must be built first when working from a snapshot.
   counter in the **same JCR transaction**. Every management mutation that consumes a TOTP
   code routes through this method via `TotpFactorMutation.verifyTotpAndConsume`. Do not
   add a sibling code path that verifies without consuming.
-- **Backup codes are PBKDF2-hashed at rest** (`BackupCodes.hash`); never persist or
-  compare raw codes. Verification uses `MessageDigest.isEqual` (constant time).
+- **Backup codes are PBKDF2-hashed at rest** (`BackupCodes.hash`, in the shared `extensions`
+  bundle); never persist or compare raw codes. Verification uses `MessageDigest.isEqual`
+  (constant time).
 - **Secrets are write-once towards the client:** the Base32 secret and `otpauth://` URI
   leave the server only on the `enroll` response. After `confirmEnroll`, the secret is
   never returned by any API and never logged. Preserve this when adding fields.

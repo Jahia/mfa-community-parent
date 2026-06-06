@@ -1,11 +1,14 @@
 /**
- * HTTP-level coverage for the /cms/login gate (TotpLoginGateFilter):
+ * HTTP-level coverage for the shared /cms/login gate (MfaLoginGateFilter, in the
+ * mfa-factors-extensions bundle):
  *
  * Jahia's legacy /cms/login endpoint authenticates with username/password only (no MFA),
- * so on a site that ENFORCES TOTP enrollment it is a second-factor bypass. With the gate
- * enabled (loginGate.enabled, PID org.jahia.modules.totp), /cms/login must return 403
- * while enrollment is enforced — unless the client IP, read from the FIRST X-Forwarded-For
- * entry, matches the configured whitelist (loginGate.ipWhitelist).
+ * so on a site that ENFORCES enrollment for any factor it is a second-factor bypass. With the
+ * gate enabled (loginGate.enabled, PID org.jahia.modules.mfa.extensions), /cms/login must
+ * return 403 while enrollment is enforced — unless the client IP, read from the FIRST
+ * X-Forwarded-For entry, matches the configured whitelist (loginGate.ipWhitelist). This spec
+ * drives enforcement through the TOTP factor (a convenient enforcing factor), but the gate
+ * itself is factor-agnostic.
  *
  * The gate config is flipped through the provisioning API (editConfiguration) and reverted
  * in after(), so the other specs always run with the gate at its default (disabled).
@@ -25,7 +28,7 @@ const setGateConfig = (enabled: boolean, ipWhitelist: string) => {
         auth: {user: ROOT.username, pass: ROOT.password},
         headers: {'Content-Type': 'application/json'},
         body: [{
-            editConfiguration: 'org.jahia.modules.totp',
+            editConfiguration: 'org.jahia.modules.mfa.extensions',
             properties: {'loginGate.enabled': String(enabled), 'loginGate.ipWhitelist': ipWhitelist}
         }]
     });
