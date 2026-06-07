@@ -1,6 +1,6 @@
 import React from 'react';
 import {registry} from '@jahia/ui-extender';
-import {Security} from '@jahia/moonstone';
+import {Key, Report, Security} from '@jahia/moonstone';
 import MyWebauthnSettings from './MfaWebauthn/MyWebauthnSettings/MyWebauthnSettings';
 import SiteSettings from './MfaWebauthn/SiteSettings/SiteSettings';
 import AuditReporting from './MfaWebauthn/AuditReporting/AuditReporting';
@@ -30,7 +30,7 @@ export default function () {
     // MFA Community > Security keys and passkeys: register / rename / remove passkeys.
     registry.add('adminRoute', 'mfa-factors-webauthn', {
         targets: ['dashboard-mfa-community-dashboard:2'],
-        icon: <Security/>,
+        icon: <Key/>,
         label: 'mfa-factors-webauthn:title',
         isSelectable: true,
         render: () => React.createElement(MyWebauthnSettings)
@@ -52,7 +52,7 @@ export default function () {
     // MFA Community > Security and passkeys: per-site WebAuthn policy (enable/enforce/grace/groups).
     registry.add('adminRoute', 'mfa-factors-webauthn-site-settings', {
         targets: ['administration-sites-mfa-community:3'],
-        icon: <Security/>,
+        icon: <Key/>,
         label: 'mfa-factors-webauthn:siteSettings.menuLabel',
         isSelectable: true,
         ...SITE_ADMIN_GUARDS,
@@ -64,7 +64,7 @@ export default function () {
     if (!registry.get('adminRoute', 'mfa-community-audit')) {
         registry.add('adminRoute', 'mfa-community-audit', {
             targets: ['administration-sites-mfa-community:4'],
-            icon: <Security/>,
+            icon: <Report/>,
             label: 'mfa-factors-webauthn:auditReporting.menuLabel',
             isSelectable: true,
             ...SITE_ADMIN_GUARDS,

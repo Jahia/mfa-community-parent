@@ -1,6 +1,6 @@
 import React from 'react';
 import {registry} from '@jahia/ui-extender';
-import {Security} from '@jahia/moonstone';
+import {Setting} from '@jahia/moonstone';
 import GlobalSettings from './MfaExtensions/GlobalSettings';
 
 export default function () {
@@ -12,7 +12,7 @@ export default function () {
     registry.add('adminRoute', 'mfa-extensions-settings', {
         targets: ['administration-server-configuration:30'],
         requiredPermission: 'admin',
-        icon: <Security/>,
+        icon: <Setting/>,
         label: 'mfa-factors-extensions:settings.menuLabel',
         isSelectable: true,
         render: () => React.createElement(GlobalSettings)

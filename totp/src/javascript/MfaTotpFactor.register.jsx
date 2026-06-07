@@ -1,6 +1,6 @@
 import React from 'react';
 import {registry} from '@jahia/ui-extender';
-import {Security} from '@jahia/moonstone';
+import {GlobalLink, Password, Report, Security} from '@jahia/moonstone';
 import MyMfaSettings from './MfaTotpFactor/MyMfaSettings/MyMfaSettings';
 import SiteSettings from './MfaTotpFactor/SiteSettings/SiteSettings';
 import ExtensionsSettings from './MfaTotpFactor/ExtensionsSettings/ExtensionsSettings';
@@ -31,7 +31,7 @@ export default function () {
     // MFA Community > Two-factor authentication: enroll / disable / regenerate backup codes.
     registry.add('adminRoute', 'mfa-factors-totp', {
         targets: ['dashboard-mfa-community-dashboard:1'],
-        icon: <Security/>,
+        icon: <Password/>,
         label: 'mfa-factors-totp:title',
         isSelectable: true,
         render: () => React.createElement(MyMfaSettings)
@@ -55,7 +55,7 @@ export default function () {
     // the upaTotp:siteSettings mixin and managed through the totp GraphQL API.
     registry.add('adminRoute', 'mfa-community-extensions', {
         targets: ['administration-sites-mfa-community:1'],
-        icon: <Security/>,
+        icon: <GlobalLink/>,
         label: 'mfa-factors-totp:extensionsSettings.menuLabel',
         isSelectable: true,
         ...SITE_ADMIN_GUARDS,
@@ -65,7 +65,7 @@ export default function () {
     // MFA Community > Two-factor authentication: per-site TOTP policy (enable/enforce/grace/groups).
     registry.add('adminRoute', 'mfa-factors-totp-site-settings', {
         targets: ['administration-sites-mfa-community:2'],
-        icon: <Security/>,
+        icon: <Password/>,
         label: 'mfa-factors-totp:siteSettings.menuLabel',
         isSelectable: true,
         ...SITE_ADMIN_GUARDS,
@@ -77,7 +77,7 @@ export default function () {
     if (!registry.get('adminRoute', 'mfa-community-audit')) {
         registry.add('adminRoute', 'mfa-community-audit', {
             targets: ['administration-sites-mfa-community:4'],
-            icon: <Security/>,
+            icon: <Report/>,
             label: 'mfa-factors-totp:auditReporting.menuLabel',
             isSelectable: true,
             ...SITE_ADMIN_GUARDS,
