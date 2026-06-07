@@ -49,3 +49,9 @@ straight into a CI pipeline.
 - `graphQL.totp.verify.cy.ts` — login with TOTP code; replay rejection.
 - `graphQL.totp.errors.cy.ts` — confirmEnroll without enroll, wrong code, already-enrolled.
 - `graphQL.totp.backupCodes.cy.ts` — backup-code single-use + regenerateBackupCodes gating.
+- `ui.emailFactor.cy.ts` — UPA's built-in `email_code` factor offered at sign-in: chooser shows
+  it next to TOTP, the emailed code (read from Mailpit) signs the user in, and choosing the
+  authenticator instead sends NO email (the foreign-factor drain releases `email_code`).
+  Needs the stack's mail service activated (`assets/setup-smtp-server.groovy`, done by
+  `ci.startup.sh`) and uses the groovy console to write UPA's `mfaEnabledFactors` as a REAL
+  two-entry `String[]` (impossible through the provisioning string API).

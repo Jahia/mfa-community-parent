@@ -1,5 +1,9 @@
 package org.jahia.modules.upa.mfa.extensions;
 
+import org.jahia.modules.upa.mfa.MfaSession;
+
+import java.io.Serializable;
+
 /**
  * Contract for factor preparation results that can represent a pick-one SKIP marker instead of a
  * real challenge. Factor providers consult their siblings' preparation results through this
@@ -16,4 +20,16 @@ public interface SkippablePreparation {
 
     /** Whether this preparation is a skip marker rather than a real challenge. */
     boolean isSkipped();
+
+    /**
+     * Whether {@code factor}'s session "verified" flag only records a drained pick-one skip
+     * (client-side drain of a skipped preparation, or the server-side
+     * {@link MfaForeignFactorDrain}) rather than a real challenge. Shared by the factor
+     * providers' "another enforced factor already verified" row and by the foreign-factor
+     * drain itself, so a drained factor can never satisfy pick-one for its siblings.
+     */
+    static boolean isSkipDrained(MfaSession session, String factor) {
+        Serializable prep = session.getOrCreateFactorState(factor).getPreparationResult();
+        return prep instanceof SkippablePreparation && ((SkippablePreparation) prep).isSkipped();
+    }
 }

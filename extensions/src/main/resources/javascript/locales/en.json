@@ -14,7 +14,8 @@
     },
     "factors": {
       "totp": "Authenticator app (TOTP)",
-      "webauthn": "Security key / passkey (WebAuthn)"
+      "webauthn": "Security key / passkey (WebAuthn)",
+      "email_code": "Email code (built-in UPA factor)"
     },
     "graceDays": {
       "label": "Grace period (days)",

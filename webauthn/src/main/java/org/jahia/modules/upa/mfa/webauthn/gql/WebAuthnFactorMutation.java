@@ -13,6 +13,7 @@ import org.jahia.modules.graphql.provider.dxm.util.ContextUtil;
 import org.jahia.modules.upa.mfa.MfaService;
 import org.jahia.modules.upa.mfa.MfaSession;
 import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
+import org.jahia.modules.upa.mfa.extensions.MfaForeignFactorDrain;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.gql.Result;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnAuditLog;
@@ -74,9 +75,13 @@ public class WebAuthnFactorMutation {
     private MfaGlobalPolicy globalPolicy;
     private MfaFactorDirectory factorDirectory;
     private WebAuthnManagementRateLimiter rateLimiter;
+    private MfaForeignFactorDrain foreignFactorDrain;
 
     @Inject @GraphQLOsgiService
     public void setMfaService(MfaService mfaService) { this.mfaService = mfaService; }
+
+    @Inject @GraphQLOsgiService
+    public void setForeignFactorDrain(MfaForeignFactorDrain foreignFactorDrain) { this.foreignFactorDrain = foreignFactorDrain; }
 
     @Inject @GraphQLOsgiService
     public void setGlobalPolicy(MfaGlobalPolicy globalPolicy) { this.globalPolicy = globalPolicy; }
@@ -128,7 +133,9 @@ public class WebAuthnFactorMutation {
             DataFetchingEnvironment environment) {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
         HttpServletResponse response = ContextUtil.getHttpServletResponse(environment.getGraphQlContext());
-        MfaSession session = mfaService.verifyFactor(FACTOR_TYPE, assertion, request, response);
+        // Through the drain wrapper: a genuine verification must also release any FOREIGN
+        // enforced factor (e.g. UPA's email_code) that cannot skip itself.
+        MfaSession session = foreignFactorDrain.verifyFactor(FACTOR_TYPE, assertion, request, response);
         return new Result(session);
     }
 

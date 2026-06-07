@@ -144,6 +144,48 @@ in the same flow. Empty `enforcedFactors` (the default) = no enforcement.
 > factor providers log a `WARN` (*"…is not in UPA's mfaEnabledFactors — this sign-in completes
 > WITHOUT a second-factor challenge"*) when this happens.
 
+### UPA's built-in email factor (`email_code`)
+
+UPA ships an email one-time-code factor of its own (`email_code`: a 6-digit code sent to the
+user's `j:email` profile property — no enrollment concept). It can be offered as a **pick-one
+alternative** next to TOTP and WebAuthn by listing it in **both** places:
+
+```
+# <karaf>/etc/org.jahia.modules.upa.config        (typed .config — see the note above)
+mfaEnabledFactors=["totp","webauthn","email_code"]
+
+# PID org.jahia.modules.mfa.extensions
+enforcedFactors = totp,webauthn,email_code
+```
+
+The login chooser then offers *Email code* to every user whose profile carries an email
+address, and verifying **any one** factor completes the sign-in. Two pieces in the extensions
+bundle make this work — UPA's provider lives in an unexported package and knows nothing about
+the pick-one protocol:
+
+- **`EmailCodeFactorAdapter`** (an `MfaSiteProvider`) makes the factor visible to the shared
+  infrastructure: the chooser filter counts a non-blank `j:email` as "configured", the factor
+  appears in the administration UI's enforcement options, and owning an email address counts
+  as "owning an enforced factor" (which also closes pre-auth inline enrollment for those
+  users — correct, since they can sign in with the email challenge and enroll a stronger
+  factor from their dashboard). It is **not inline-enrollable**: the sign-in flow cannot add
+  an email address to a profile.
+- **`MfaForeignFactorDrain`** wraps the TOTP/WebAuthn verify mutations: after a **genuine**
+  verification of an enforced factor it marks the still-required `email_code` verified (with
+  the usual skip marker, so it never satisfies pick-one for anyone else) and finishes the
+  authentication. Without it UPA would keep requiring the email challenge **in addition** to
+  the factor the user picked — UPA requires *every* factor in `mfaEnabledFactors` and its
+  email provider never skips itself. The reverse direction needs no help: after a genuine
+  email verification the native factors skip themselves. Choosing TOTP/WebAuthn therefore
+  sends **no email at all**.
+
+Prerequisites: Jahia's **mail service** must be configured (Administration → Server →
+Notifications) — a user picking *Email code* with a broken SMTP setup sees a clear
+`sending_validation_code_failed` error. Users without an email address are simply not offered
+the option. With `email_code` enabled in UPA but **not** listed in `enforcedFactors`, UPA's
+vanilla semantics stand: every login requires the email challenge on top of everything else
+(the drain only spans the enforced set).
+
 ### The `/cms/login` gate
 
 Jahia's legacy `/cms/login` endpoint authenticates with username/password only — it never

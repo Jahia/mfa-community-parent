@@ -14,6 +14,7 @@ import org.jahia.modules.upa.mfa.MfaSession;
 import org.jahia.modules.upa.mfa.MfaFactorState;
 import org.jahia.modules.upa.mfa.extensions.BackupCodes;
 import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
+import org.jahia.modules.upa.mfa.extensions.MfaForeignFactorDrain;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.extensions.MfaUrls;
 import org.jahia.modules.upa.mfa.gql.Result;
@@ -82,11 +83,18 @@ public class TotpFactorMutation {
     private TotpAuditLog auditLog;
     private MfaGlobalPolicy globalPolicy;
     private MfaFactorDirectory factorDirectory;
+    private MfaForeignFactorDrain foreignFactorDrain;
 
     @Inject
     @GraphQLOsgiService
     public void setMfaService(MfaService mfaService) {
         this.mfaService = mfaService;
+    }
+
+    @Inject
+    @GraphQLOsgiService
+    public void setForeignFactorDrain(MfaForeignFactorDrain foreignFactorDrain) {
+        this.foreignFactorDrain = foreignFactorDrain;
     }
 
     @Inject
@@ -403,7 +411,9 @@ public class TotpFactorMutation {
         MfaFactorState factorState = session.getOrCreateFactorState(FACTOR_TYPE);
         factorState.setPreparationResult(new TotpPreparationResult());
         factorState.setPrepared(true);
-        MfaSession verifiedSession = mfaService.verifyFactor(FACTOR_TYPE, code, request, response);
+        // Through the drain wrapper: a genuine verification must also release any FOREIGN
+        // enforced factor (e.g. UPA's email_code) that cannot skip itself.
+        MfaSession verifiedSession = foreignFactorDrain.verifyFactor(FACTOR_TYPE, code, request, response);
         rateLimiter.recordSuccess(userId);
         auditLog.recordEvent("confirmEnroll", OUTCOME_SUCCESS, userId, auditSiteKey(verifiedSession), "inlineLogin");
         logger.info("TOTP inline enrollment confirmed during sign-in for user {}", userId);
@@ -433,7 +443,9 @@ public class TotpFactorMutation {
             throw new DataFetchingException(ERROR_INVALID_CODE);
         }
         HttpServletResponse response = ContextUtil.getHttpServletResponse(environment.getGraphQlContext());
-        MfaSession session = mfaService.verifyFactor(FACTOR_TYPE, code, request, response);
+        // Through the drain wrapper: a genuine verification must also release any FOREIGN
+        // enforced factor (e.g. UPA's email_code) that cannot skip itself.
+        MfaSession session = foreignFactorDrain.verifyFactor(FACTOR_TYPE, code, request, response);
         return new Result(session);
     }
 

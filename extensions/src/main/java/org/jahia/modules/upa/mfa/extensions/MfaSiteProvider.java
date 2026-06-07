@@ -48,6 +48,30 @@ public interface MfaSiteProvider {
     boolean isConfiguredForUser(String userId);
 
     /**
+     * @return {@code true} (the default) if the user can set this factor up from the inline
+     * enrollment step of the sign-in flow (scan a QR code, register a passkey, ...).
+     * {@code false} for factors whose "configured" state is not user-enrollable at login —
+     * e.g. the email factor, whose configuration is simply a {@code j:email} profile property
+     * the sign-in flow cannot add. Such factors are never offered by the inline-enrollment
+     * chooser (there is no enrollment UI behind the button).
+     */
+    default boolean isInlineEnrollable() {
+        return true;
+    }
+
+    /**
+     * @return {@code false} (the default) when this provider is implemented by the factor's own
+     * bundle, whose UPA factor provider speaks the pick-one skip protocol
+     * ({@link SkippablePreparation}) and therefore releases itself once another enforced factor
+     * is genuinely verified. {@code true} for pure ADAPTERS that only speak ABOUT a factor
+     * implemented elsewhere (UPA's built-in email_code): the underlying UPA provider cannot skip
+     * itself, so the {@link MfaForeignFactorDrain} must release it instead.
+     */
+    default boolean isForeignFactor() {
+        return false;
+    }
+
+    /**
      * @param siteKey the JCR site key (never {@code null})
      * @return a site-relative login URL configured for the site, or {@code null} when this factor
      * has no per-site override (the default).

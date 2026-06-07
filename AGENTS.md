@@ -43,12 +43,14 @@ sync with that document; do not duplicate its contents inside the module.
 pom.xml                            Root aggregator (packaging=pom, mfa-community-parent): <modules>extensions, totp, webauthn, login-ui</modules>.
 extensions/                        Shared OSGi bundle (artifactId mfa-factors-extensions, no UI).
   src/main/java/org/jahia/modules/upa/mfa/extensions/
-    MfaSiteProvider.java             SPI: factors expose per-site enforcement + login/logout URLs to the shared code.
+    MfaSiteProvider.java             SPI: factors expose per-site enforcement + login/logout URLs to the shared code (+ isInlineEnrollable / isForeignFactor markers).
+    MfaForeignFactorDrain.java       Verify-mutation wrapper: a genuine verification releases enforced FOREIGN factors (UPA's email_code) and finishes authentication.
     BackupCodes.java                 Generates, PBKDF2-hashes, and constant-time-verifies backup codes.
     MfaUrls.java                     Open-redirect-safe server-relative URL validation (single chokepoint).
     internal/
       MfaLoginGateFilter.java        /cms/login gate (AbstractServletFilter); gates when ANY factor enforces (aggregates MfaSiteProvider).
       MfaLoginLogoutProvider.java    LoginUrlProvider/LogoutUrlProvider; routes to the MFA login UI (per-site via SPI → global cfg → null).
+      EmailCodeFactorAdapter.java    MfaSiteProvider adapter for UPA's built-in email_code factor (configured == j:email present; foreign, not inline-enrollable).
   src/main/resources/META-INF/configurations/org.jahia.modules.mfa.extensions.cfg   Gate + global login/logout URL config.
 totp/                              OSGi bundle module (artifactId mfa-factors-totp).
   pom.xml

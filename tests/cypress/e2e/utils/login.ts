@@ -86,6 +86,36 @@ export function setGlobalMfaUrls(loginUrl: string, logoutUrl = '') {
     cy.wait(2000);
 }
 
+/**
+ * Set UPA's `mfaEnabledFactors` (PID org.jahia.modules.upa) to a REAL string array.
+ * The provisioning API can only submit strings, and UPA's String[] metatype never
+ * comma-splits — `totp,email_code` through provisioning binds as ONE bogus entry. This
+ * helper goes through ConfigurationAdmin (groovy console) instead, which accepts a typed
+ * String[] and persists it in Felix's typed .config format. ALWAYS restore in after().
+ */
+export function setUpaEnabledFactors(factors: string[]) {
+    const password = Cypress.env('SUPER_USER_PASSWORD') as string;
+    const literal = factors.map(f => JSON.stringify(f)).join(', ');
+    const script = [
+        // BundleUtils, not getBundleContext().getServiceReference(): the console's framework
+        // context cannot see ConfigurationAdmin directly (returns null).
+        'def ca = org.jahia.osgi.BundleUtils.getOsgiService("org.osgi.service.cm.ConfigurationAdmin", null)',
+        'def cfg = ca.getConfiguration("org.jahia.modules.upa", null)',
+        'def props = cfg.getProperties() ?: new Hashtable()',
+        `props.put("mfaEnabledFactors", [${literal}] as String[])`,
+        'cfg.update(props)',
+    ].join('\n');
+    cy.request({
+        method: 'POST',
+        url: '/modules/tools/groovyConsole.jsp',
+        auth: {user: 'root', pass: password},
+        form: true,
+        body: {script, runScript: 'true'},
+    });
+    // Give ConfigAdmin a moment to dispatch the @Modified event to UPA's config service.
+    cy.wait(2000);
+}
+
 export const TOTP_LOGIN_PAGE_NAME = 'myLoginPage';
 
 export function getTotpLoginPageURL(siteKey: string): string {

@@ -226,17 +226,11 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
         }
         for (String factor : globalPolicy.getEnforcedFactors()) {
             if (!FACTOR_TYPE.equals(factor) && session.isFactorVerified(factor)
-                    && !verifiedBySkipDrain(session, factor)) {
+                    && !SkippablePreparation.isSkipDrained(session, factor)) {
                 return true;
             }
         }
         return false;
-    }
-
-    /** Whether the factor's session "verification" was just the client draining a pick-one skip. */
-    private static boolean verifiedBySkipDrain(MfaSession session, String factor) {
-        Serializable prep = session.getOrCreateFactorState(factor).getPreparationResult();
-        return prep instanceof SkippablePreparation && ((SkippablePreparation) prep).isSkipped();
     }
 
     /**
@@ -283,13 +277,15 @@ public class WebAuthnFactorProvider implements MfaFactorProvider {
     /**
      * The factors offered for inline enrollment on {@code siteKey}: the globally enforced factors
      * that are enabled on this site (or simply installed, when no site context is available).
-     * A provider that cannot answer is simply not offered.
+     * Factors that cannot be set up from the sign-in flow (e.g. the email-code adapter) are never
+     * offered — there is no enrollment UI behind the button. A provider that cannot answer is
+     * simply not offered.
      */
     private String enrollableFactorsForSite(String siteKey) {
         List<String> offered = new ArrayList<>();
         for (String factor : globalPolicy.getEnforcedFactors()) {
             for (MfaSiteProvider provider : siteProviders) {
-                if (!factor.equals(provider.getFactorType())) {
+                if (!factor.equals(provider.getFactorType()) || !provider.isInlineEnrollable()) {
                     continue;
                 }
                 try {
