@@ -17,7 +17,10 @@ import org.osgi.service.component.annotations.ReferencePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.servlet.RequestDispatcher;
 import javax.servlet.http.HttpServletRequest;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -70,6 +73,9 @@ public class MfaLoginLogoutProvider implements LoginUrlProvider, LogoutUrlProvid
     static final String CONFIG_LOGIN_URL = "loginUrl";
     static final String CONFIG_LOGOUT_URL = "logoutUrl";
 
+    /** Consumed by the login UI's post-authentication redirect (see {@code services/redirect.tsx}). */
+    static final String PARAM_REDIRECT = "redirect";
+
     private static final String ATTR_SITE_KEY = "siteKey";
     private static final String ATTR_URL_RESOLVER = "urlResolver";
     private static final String BEAN_URL_RESOLVER_FACTORY = "urlResolverFactory";
@@ -119,7 +125,7 @@ public class MfaLoginLogoutProvider implements LoginUrlProvider, LogoutUrlProvid
 
     @Override
     public String getLoginUrl(HttpServletRequest request) {
-        return chooseUrl(perSiteUrl(request, true), loginUrl.get());
+        return appendRedirect(chooseUrl(perSiteUrl(request, true), loginUrl.get()), redirectTarget(request));
     }
 
     @Override
@@ -129,12 +135,85 @@ public class MfaLoginLogoutProvider implements LoginUrlProvider, LogoutUrlProvid
 
     @Override
     public String getLogoutUrl(HttpServletRequest request) {
-        return chooseUrl(perSiteUrl(request, false), logoutUrl.get());
+        return appendRedirect(chooseUrl(perSiteUrl(request, false), logoutUrl.get()), redirectTarget(request));
     }
 
     /** Per-site URL wins when set; otherwise fall back to the (trimmed) global default. */
     static String chooseUrl(String perSite, String global) {
         return StringUtils.isNotBlank(perSite) ? perSite : StringUtils.trimToNull(global);
+    }
+
+    /**
+     * The page the user was actually after, as a safe server-relative URL, or {@code null}.
+     * <p>
+     * An explicit {@code redirect} parameter wins — Jahia core and templates pass one on
+     * {@code /cms/login} / {@code /cms/logout} links, and it must survive the hop to the custom
+     * page. Otherwise the target is the original request URI: Jahia's 401 handling FORWARDS to
+     * the error servlet before consulting the providers, so the URI the user asked for lives in
+     * the standard {@code ERROR} / {@code FORWARD} dispatch attributes, with the request's own
+     * URI as the no-dispatch fallback. The auth endpoints (and the error servlet) are never a
+     * useful target. Everything is funneled through {@link MfaUrls#isSafeSiteRelativeUrl} — a
+     * hostile {@code redirect} parameter must not turn the login flow into an open redirect.
+     */
+    static String redirectTarget(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String explicit = StringUtils.trimToNull(request.getParameter(PARAM_REDIRECT));
+        if (explicit != null) {
+            return MfaUrls.isSafeSiteRelativeUrl(explicit) ? explicit : null;
+        }
+        String uri;
+        String query;
+        String errorUri = stringAttribute(request, RequestDispatcher.ERROR_REQUEST_URI);
+        String forwardUri = stringAttribute(request, RequestDispatcher.FORWARD_REQUEST_URI);
+        if (errorUri != null) {
+            uri = errorUri;
+            query = null; // the servlet spec exposes no query string for ERROR dispatches
+        } else if (forwardUri != null) {
+            uri = forwardUri;
+            query = stringAttribute(request, RequestDispatcher.FORWARD_QUERY_STRING);
+        } else {
+            uri = request.getRequestURI();
+            query = request.getQueryString();
+        }
+        if (uri == null || isAuthOrErrorEndpoint(uri, request.getContextPath())) {
+            return null;
+        }
+        String target = StringUtils.isBlank(query) ? uri : uri + "?" + query;
+        return MfaUrls.isSafeSiteRelativeUrl(target) ? target : null;
+    }
+
+    private static String stringAttribute(HttpServletRequest request, String name) {
+        Object value = request.getAttribute(name);
+        return value instanceof String ? StringUtils.trimToNull((String) value) : null;
+    }
+
+    private static boolean isAuthOrErrorEndpoint(String uri, String contextPath) {
+        String path = StringUtils.isNotEmpty(contextPath) && uri.startsWith(contextPath)
+                ? uri.substring(contextPath.length())
+                : uri;
+        return path.startsWith("/cms/login") || path.startsWith("/cms/logout") || path.equals("/error");
+    }
+
+    /**
+     * Append {@code redirect=<target>} to the chosen login/logout URL so the login UI can send
+     * the user back to the page they wanted ({@code services/redirect.tsx} validates and consumes
+     * the parameter after authentication). Left untouched when there is no URL or no target, when
+     * the target IS the chosen page itself (a self-redirect loop), or when the operator hardcoded
+     * a {@code redirect} parameter in the configured URL.
+     */
+    static String appendRedirect(String url, String target) {
+        if (url == null || StringUtils.isBlank(target)) {
+            return url;
+        }
+        String urlPath = StringUtils.substringBefore(url, "?");
+        String targetPath = StringUtils.substringBefore(target, "?");
+        if (urlPath.equals(targetPath) || url.contains(PARAM_REDIRECT + "=")) {
+            return url;
+        }
+        String separator = url.contains("?") ? "&" : "?";
+        return url + separator + PARAM_REDIRECT + "=" + URLEncoder.encode(target, StandardCharsets.UTF_8);
     }
 
     /**

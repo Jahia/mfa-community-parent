@@ -92,6 +92,15 @@ is configured for a site the provider returns nothing, so deploying the module n
 login on its own. Global `.cfg` edits are applied live (no restart); per-site values take effect
 immediately on save.
 
+**Return-to-target (`redirect=`):** the provider appends a `redirect=` parameter to the
+login/logout URL it serves, carrying the page the user was actually after — the URL whose 401
+triggered the redirect (read from the servlet ERROR/FORWARD dispatch attributes) or an explicit
+`redirect=` parameter already present on a `/cms/login` / `/cms/logout` link. After a successful
+sign-in the login UI sends the user there instead of the site root. The parameter is validated
+on BOTH sides against open redirects (server: the same `MfaUrls` chokepoint; client: same-origin
+check in `services/redirect.tsx`); an operator-hardcoded `redirect=` in the configured URL is
+left untouched.
+
 **Open-redirect guard:** per-site URLs must be server-relative paths starting with `/`
 (e.g. `/sites/mySite/login.html`). Absolute (`https://…`), protocol-relative (`//host`,
 `/\host`) and scheme-carrying (`javascript:`) values are rejected at save time, and any

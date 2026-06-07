@@ -64,6 +64,28 @@ export function setGlobalEnforcement(enforcedFactors: string, graceDays = 0) {
     cy.wait(2000);
 }
 
+/**
+ * Set (or clear, with '') the GLOBAL MFA login/logout URLs (PID org.jahia.modules.mfa.extensions).
+ * When set, MfaLoginLogoutProvider serves them to Jahia's 401/logout handling and appends a
+ * `redirect=` param carrying the page the user was after. Specs MUST clear them in after() —
+ * a leftover URL would reroute every other spec's 401s to a deleted page.
+ */
+export function setGlobalMfaUrls(loginUrl: string, logoutUrl = '') {
+    const password = Cypress.env('SUPER_USER_PASSWORD') as string;
+    cy.request({
+        method: 'POST',
+        url: '/modules/api/provisioning',
+        auth: {user: 'root', pass: password},
+        headers: {'Content-Type': 'application/json'},
+        body: [{
+            editConfiguration: 'org.jahia.modules.mfa.extensions',
+            properties: {loginUrl, logoutUrl},
+        }],
+    });
+    // Give ConfigAdmin a moment to dispatch the @Modified event to the provider.
+    cy.wait(2000);
+}
+
 export const TOTP_LOGIN_PAGE_NAME = 'myLoginPage';
 
 export function getTotpLoginPageURL(siteKey: string): string {
