@@ -71,5 +71,10 @@ describe('MFA Community site administration navigation', () => {
         cy.visit(`${ADMIN}/mfa-community-audit`);
         cy.get('[data-testid="audit-report-section"]', {timeout: 30000}).should('have.length', 2);
         cy.get('[data-testid="load-audit-btn"]').should('have.length', 2);
+        // Each section identifies its factor: marker attribute + a factor-specific heading.
+        cy.get('[data-testid="audit-report-section"][data-factor="totp"]')
+            .should('contain.text', 'Two-factor authentication (TOTP)');
+        cy.get('[data-testid="audit-report-section"][data-factor="webauthn"]')
+            .should('contain.text', 'Security keys & passkeys (WebAuthn)');
     });
 });

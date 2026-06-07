@@ -24,7 +24,7 @@
     "nicknameLabel": "Name (optional)",
     "nicknamePlaceholder": "e.g. YubiKey, MacBook Touch ID",
     "button": "Register",
-    "inProgress": "Waiting for your authenticator\u2026"
+    "inProgress": "Waiting for your authenticator…"
   },
   "errors": {
     "unsupported": "This browser does not support WebAuthn. Try a recent version of Chrome, Edge, Firefox or Safari.",
@@ -33,11 +33,11 @@
   },
   "siteSettings": {
     "menuLabel": "Security and passkeys",
-    "title": "WebAuthn \u2014 {{siteKey}}",
+    "title": "WebAuthn — {{siteKey}}",
     "description": "Choose whether WebAuthn is active on this site and which groups it applies to. Whether registration is REQUIRED is a platform-wide setting (enforcedFactors in the org.jahia.modules.mfa.extensions configuration).",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
-    "saving": "Saving\u2026",
+    "saving": "Saving…",
     "saved": "Settings saved.",
     "enabled": {
       "label": "Enable WebAuthn on this site",
@@ -58,7 +58,7 @@
       "done": "The user's WebAuthn authenticators have been removed."
     },
     "audit": {
-      "title": "Audit & reporting",
+      "title": "Security keys & passkeys (WebAuthn)",
       "loadEvents": "Load recent events",
       "loadReport": "Registration report",
       "reportSummary": "{{registered}} of {{total}} users have registered an authenticator.",
@@ -80,6 +80,6 @@
   },
   "auditReporting": {
     "menuLabel": "Audit & reporting",
-    "title": "Audit & reporting \u2014 {{siteKey}}"
+    "title": "Audit & reporting — {{siteKey}}"
   }
 }

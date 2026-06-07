@@ -1,7 +1,7 @@
 import React from 'react';
 import {useTranslation} from 'react-i18next';
 import {useLazyQuery} from '@apollo/client';
-import {Button, Typography} from '@jahia/moonstone';
+import {Button, Key, Typography} from '@jahia/moonstone';
 import {AuditEventsQuery, EnrollmentReportQuery} from './SiteSettings.gql';
 
 const formatTs = ts => {
@@ -33,10 +33,13 @@ const AuditReportSection = ({siteKey}) => {
     const reportData = report.data && report.data.mfaWebauthn && report.data.mfaWebauthn.enrollmentReport;
 
     return (
-        <section data-testid="audit-report-section">
-            <Typography variant="heading" style={{display: 'block', marginBottom: 12}}>
-                {t('siteSettings.audit.title')}
-            </Typography>
+        <section data-testid="audit-report-section" data-factor="webauthn">
+            <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12}}>
+                <Key/>
+                <Typography variant="heading">
+                    {t('siteSettings.audit.title')}
+                </Typography>
+            </div>
 
             <div style={{display: 'flex', gap: 12, marginBottom: 16}}>
                 <Button data-testid="load-audit-btn"

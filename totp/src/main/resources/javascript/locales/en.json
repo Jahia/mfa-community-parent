@@ -3,7 +3,7 @@
   "status": "Status:",
   "enabled": "Enabled",
   "disabled": "Disabled",
-  "loading": "Loading\u2026",
+  "loading": "Loading…",
   "enable": "Enable two-factor authentication",
   "disable": "Disable",
   "regenerateBackupCodes": "Regenerate backup codes",
@@ -42,11 +42,11 @@
   },
   "siteSettings": {
     "menuLabel": "Two-factor authentication",
-    "title": "Two-factor authentication \u2014 {{siteKey}}",
+    "title": "Two-factor authentication — {{siteKey}}",
     "description": "Choose whether two-factor authentication (TOTP) is active on this site and which groups it applies to. Whether enrollment is REQUIRED is a platform-wide setting (enforcedFactors in the org.jahia.modules.mfa.extensions configuration).",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
-    "saving": "Saving\u2026",
+    "saving": "Saving…",
     "saved": "Settings saved.",
     "enabled": {
       "label": "Enable TOTP MFA on this site",
@@ -67,7 +67,7 @@
       "done": "The user's TOTP enrollment has been reset."
     },
     "audit": {
-      "title": "Audit & reporting",
+      "title": "Two-factor authentication (TOTP)",
       "loadEvents": "Load recent events",
       "loadReport": "Enrollment report",
       "reportSummary": "{{enrolled}} of {{total}} users are enrolled in TOTP.",
@@ -90,19 +90,19 @@
   },
   "extensionsSettings": {
     "menuLabel": "Extensions",
-    "title": "Extensions \u2014 {{siteKey}}",
+    "title": "Extensions — {{siteKey}}",
     "description": "Point this site's login and logout at custom pages. When set, unauthenticated users are redirected to the login page below instead of the default. Leave empty to fall back to the global configuration, then to Jahia's default.",
     "loginUrl": {
       "label": "Login page URL",
-      "help": "A site page reachable without authentication that renders the TOTP login UI. Must be a relative path starting with /, e.g. /sites/mySite/login.html \u2014 absolute or external URLs are rejected."
+      "help": "A site page reachable without authentication that renders the TOTP login UI. Must be a relative path starting with /, e.g. /sites/mySite/login.html — absolute or external URLs are rejected."
     },
     "logoutUrl": {
       "label": "Logout page URL",
-      "help": "An optional custom sign-out page. Must be a relative path starting with /, e.g. /sites/mySite/logout.html \u2014 absolute or external URLs are rejected."
+      "help": "An optional custom sign-out page. Must be a relative path starting with /, e.g. /sites/mySite/logout.html — absolute or external URLs are rejected."
     }
   },
   "auditReporting": {
     "menuLabel": "Audit & reporting",
-    "title": "Audit & reporting \u2014 {{siteKey}}"
+    "title": "Audit & reporting — {{siteKey}}"
   }
 }
