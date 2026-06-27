@@ -2,8 +2,11 @@ package org.jahia.modules.upa.mfa.extensions.gql;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
+import org.jahia.modules.upa.mfa.extensions.MfaUrls;
 import org.jahia.modules.upa.mfa.extensions.internal.MfaLoginGateFilter;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Dictionary;
@@ -29,6 +32,7 @@ final class MfaExtensionsConfigSupport {
     static final String ERROR_UNKNOWN_FACTOR = "mfaExtensions.unknown_factor";
     static final String ERROR_INVALID_GRACE_DAYS = "mfaExtensions.invalid_grace_days";
     static final String ERROR_INVALID_WHITELIST = "mfaExtensions.invalid_whitelist";
+    static final String ERROR_INVALID_URL = "mfaExtensions.invalid_url";
 
     private MfaExtensionsConfigSupport() {
         // utility class
@@ -91,12 +95,57 @@ final class MfaExtensionsConfigSupport {
             properties.put(KEY_GATE_WHITELIST, validateWhitelist(update.loginGateIpWhitelist));
         }
         if (update.loginUrl != null) {
-            // Global URLs are operator-level and deliberately unrestricted (an absolute URL to an
-            // external SSO portal is legitimate) — unlike the per-site values.
-            properties.put(KEY_LOGIN_URL, update.loginUrl.trim());
+            properties.put(KEY_LOGIN_URL, validateGlobalUrl(update.loginUrl));
         }
         if (update.logoutUrl != null) {
-            properties.put(KEY_LOGOUT_URL, update.logoutUrl.trim());
+            properties.put(KEY_LOGOUT_URL, validateGlobalUrl(update.logoutUrl));
+        }
+    }
+
+    /**
+     * Validate a GLOBAL login/logout URL. Unlike the per-site values these are operator-level, so
+     * an absolute {@code http(s)} URL to an external SSO portal is legitimate; but a dangerous
+     * scheme ({@code javascript:}, {@code data:}, {@code vbscript:}) is never acceptable, and a
+     * relative path must still be a safe server-relative one (no protocol-relative {@code //host}
+     * or open-redirect tricks). Blank clears the key to its default.
+     *
+     * @return the trimmed value (possibly empty), suitable for the {@code .cfg}
+     * @throws IllegalArgumentException ({@link #ERROR_INVALID_URL}) when the value is neither a
+     *         safe server-relative path nor a well-formed {@code http(s)} absolute URL
+     */
+    private static String validateGlobalUrl(String submitted) {
+        String trimmed = submitted.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (hasDangerousScheme(trimmed)) {
+            throw new IllegalArgumentException(ERROR_INVALID_URL);
+        }
+        if (MfaUrls.isSafeSiteRelativeUrl(trimmed)) {
+            return trimmed;
+        }
+        if (isWellFormedHttpUrl(trimmed)) {
+            return trimmed;
+        }
+        throw new IllegalArgumentException(ERROR_INVALID_URL);
+    }
+
+    /** Reject the classic XSS/redirect-bait schemes regardless of case or leading whitespace. */
+    private static boolean hasDangerousScheme(String value) {
+        String lower = value.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("vbscript:");
+    }
+
+    /** A well-formed absolute {@code http(s)} URL with a host (the documented external-SSO case). */
+    private static boolean isWellFormedHttpUrl(String value) {
+        try {
+            URI uri = new URI(value);
+            String scheme = uri.getScheme();
+            return scheme != null
+                    && ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    && StringUtils.isNotBlank(uri.getHost());
+        } catch (URISyntaxException e) {
+            return false;
         }
     }
 

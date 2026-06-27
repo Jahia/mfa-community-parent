@@ -1,6 +1,7 @@
 package org.jahia.modules.upa.mfa.extensions.internal;
 
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
+import org.jahia.modules.upa.mfa.extensions.MfaSiteConfigService;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
 import org.junit.Test;
 
@@ -19,6 +20,7 @@ import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginGateFilter.i
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginGateFilter.isIpLiteral;
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginGateFilter.isWhitelisted;
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginGateFilter.parseWhitelist;
+import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginGateFilter.resolveClientIp;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -237,6 +239,81 @@ public class MfaLoginGateFilterTest {
         gate.doFilter(loginRequest(), recorder.response(), recorder.chain());
         assertEquals(Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
         assertNull("the hard gate never redirects", recorder.redirectedTo.get());
+    }
+
+    // --- X-Forwarded-For trust (loginGate.trustForwardedFor) ----------------------------------
+
+    @Test
+    public void resolveClientIp_trustsForwardedForByDefault() {
+        HttpServletRequest request = requestWith("203.0.113.9", "198.51.100.23");
+        assertEquals("the first XFF entry wins when trusted", "203.0.113.9", resolveClientIp(request, true));
+    }
+
+    @Test
+    public void resolveClientIp_ignoresForwardedForWhenNotTrusted() {
+        HttpServletRequest request = requestWith("203.0.113.9", "198.51.100.23");
+        assertEquals("the spoofable header is ignored - socket address is used",
+                "198.51.100.23", resolveClientIp(request, false));
+    }
+
+    @Test
+    public void resolveClientIp_usesSocketAddressWhenNoHeader() {
+        HttpServletRequest request = requestWith(null, "198.51.100.23");
+        assertEquals("198.51.100.23", resolveClientIp(request, true));
+        assertEquals("198.51.100.23", resolveClientIp(request, false));
+    }
+
+    @Test
+    public void trustForwardedForFalse_aSpoofedWhitelistedHeaderDoesNotGetThrough() throws Exception {
+        // Whitelist the proxy IP; an attacker forges X-Forwarded-For: <whitelisted> from a
+        // non-whitelisted socket. With trustForwardedFor=false the gate must NOT let them through.
+        MfaLoginGateFilter gate = gateWith("totp", (String) null, provider("totp", true, true, false));
+        Map<String, Object> props = new HashMap<>();
+        props.put("enforcedFactors", "totp");
+        props.put(MfaLoginGateFilter.CONFIG_GATE_WHITELIST, "203.0.113.9");
+        props.put(MfaLoginGateFilter.CONFIG_TRUST_FORWARDED_FOR, "false");
+        gate.activate(props);
+        Recorder recorder = new Recorder();
+        gate.doFilter(requestWith("203.0.113.9", "198.51.100.23"), recorder.response(), recorder.chain());
+        assertEquals("forged XFF must be ignored → blocked",
+                Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
+        assertNull(recorder.chained.get());
+    }
+
+    // --- Startup fail-CLOSED while the per-site config service is not ready --------------------
+
+    @Test
+    public void noSiteContext_failsClosedWhileConfigServiceNotReady() throws Exception {
+        // Enforcement active, no site context, and the per-site config service has NOT finished its
+        // eager scan: the no-site path must fail CLOSED (block) rather than let password-only through.
+        MfaLoginGateFilter gate = gateWith("totp", (String) null, provider("totp", true, false, false));
+        gate.setSiteConfigService(new MfaSiteConfigService()); // never activated → isReady()==false
+        Recorder recorder = new Recorder();
+        gate.doFilter(loginRequest(), recorder.response(), recorder.chain());
+        assertEquals("not-ready + enforcement active must block",
+                Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
+        assertNull("must not reach the password-only valve", recorder.chained.get());
+    }
+
+    /** An HTTP request exposing an X-Forwarded-For header and a socket (remote) address. */
+    private static HttpServletRequest requestWith(String xForwardedFor, String remoteAddr) {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                MfaLoginGateFilterTest.class.getClassLoader(),
+                new Class<?>[]{HttpServletRequest.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "getHeader":
+                            return "X-Forwarded-For".equals(args[0]) ? xForwardedFor : null;
+                        case "getRemoteAddr":
+                            return remoteAddr;
+                        case "getRequestURI":
+                            return "/cms/login";
+                        case "getContextPath":
+                            return "";
+                        default:
+                            return null;
+                    }
+                });
     }
 
     /** A bare GET /cms/login with no site context and a non-whitelisted socket address. */

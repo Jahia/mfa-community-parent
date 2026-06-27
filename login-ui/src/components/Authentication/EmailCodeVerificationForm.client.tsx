@@ -156,7 +156,7 @@ export default function EmailCodeVerificationForm(
             <Trans i18nKey="factor.email_code.verify" />
           </button>
         </div>
-        <hr />
+        <hr aria-hidden="true" />
         <div className={classes.additionalAction}>
           <button
             type="button"

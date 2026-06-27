@@ -12,8 +12,10 @@ import java.util.Map;
 
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginLogoutProvider.appendRedirect;
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginLogoutProvider.chooseUrl;
+import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginLogoutProvider.isSafeGlobalUrl;
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginLogoutProvider.redirectTarget;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -105,6 +107,34 @@ public class MfaLoginLogoutProviderTest {
         assertEquals("/global", chooseUrl("", "  /global  ".trim()));
         assertNull(chooseUrl(null, null));
         assertNull(chooseUrl("  ", "   "));
+    }
+
+    @Test
+    public void chooseUrlAllowsHttpAbsoluteGlobalForExternalSso() {
+        assertEquals("https://sso.example.com/login", chooseUrl(null, "https://sso.example.com/login"));
+        assertEquals("http://sso.example.com/login", chooseUrl(null, "http://sso.example.com/login"));
+    }
+
+    @Test
+    public void chooseUrlRejectsDangerousGlobalSchemeOnTheReadPath() {
+        // A hand-edited global .cfg must not be able to inject javascript:/data:/vbscript:.
+        assertNull(chooseUrl(null, "javascript:alert(1)"));
+        assertNull(chooseUrl(null, "data:text/html;base64,x"));
+        assertNull(chooseUrl(null, "vbscript:msgbox"));
+        // protocol-relative is an open-redirect vector → also rejected.
+        assertNull(chooseUrl(null, "//evil.example"));
+    }
+
+    @Test
+    public void isSafeGlobalUrlClassifies() {
+        assertTrue(isSafeGlobalUrl("/sites/a/login.html"));
+        assertTrue(isSafeGlobalUrl("https://sso.example.com/login"));
+        assertTrue(isSafeGlobalUrl("http://sso.example.com/login"));
+        assertFalse(isSafeGlobalUrl("javascript:alert(1)"));
+        assertFalse(isSafeGlobalUrl("DATA:text/html,x"));
+        assertFalse(isSafeGlobalUrl("//evil.example"));
+        assertFalse(isSafeGlobalUrl(null));
+        assertFalse(isSafeGlobalUrl("   "));
     }
 
     // --- redirect propagation ---------------------------------------------------------------

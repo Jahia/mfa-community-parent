@@ -132,9 +132,46 @@ public class MfaLoginLogoutProvider implements LoginUrlProvider, LogoutUrlProvid
         return appendRedirect(chooseUrl(perSiteUrl(request, false), logoutUrl.get()), redirectTarget(request));
     }
 
-    /** Per-site URL wins when set; otherwise fall back to the (trimmed) global default. */
+    /**
+     * Per-site URL wins when set; otherwise fall back to the (trimmed) global default. The global
+     * value gets the same read-path safety guard the per-site branch applies in
+     * {@link #perSiteUrl} so a hand-edited {@code .cfg} cannot inject {@code javascript:}/{@code
+     * data:}, but - unlike the per-site value - a well-formed absolute {@code http(s)} URL is
+     * allowed through for the documented external-SSO use case.
+     */
     static String chooseUrl(String perSite, String global) {
-        return StringUtils.isNotBlank(perSite) ? perSite : StringUtils.trimToNull(global);
+        if (StringUtils.isNotBlank(perSite)) {
+            return perSite;
+        }
+        String trimmed = StringUtils.trimToNull(global);
+        if (trimmed == null) {
+            return null;
+        }
+        if (isSafeGlobalUrl(trimmed)) {
+            return trimmed;
+        }
+        logger.warn("Ignoring unsafe global MFA login/logout URL (not a safe server-relative path "
+                + "nor an http(s) absolute URL)");
+        return null;
+    }
+
+    /**
+     * A global URL is safe when it is either a safe server-relative path (per-site rules) or a
+     * well-formed absolute {@code http(s)} URL. Dangerous schemes ({@code javascript:},
+     * {@code data:}, {@code vbscript:}) are always rejected.
+     */
+    static boolean isSafeGlobalUrl(String url) {
+        if (StringUtils.isBlank(url)) {
+            return false;
+        }
+        String lower = url.trim().toLowerCase(java.util.Locale.ROOT);
+        if (lower.startsWith("javascript:") || lower.startsWith("data:") || lower.startsWith("vbscript:")) {
+            return false;
+        }
+        if (MfaUrls.isSafeSiteRelativeUrl(url)) {
+            return true;
+        }
+        return lower.startsWith("http://") || lower.startsWith("https://");
     }
 
     /**

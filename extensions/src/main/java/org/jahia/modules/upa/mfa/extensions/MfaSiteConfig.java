@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Immutable snapshot of the per-site MFA configuration for a single site: the factor-agnostic
@@ -18,7 +19,13 @@ import java.util.Map;
  */
 public final class MfaSiteConfig {
 
-    /** Shared "nothing configured" snapshot returned when a site has no {@code .cfg}. */
+    /**
+     * The shared, immutable singleton snapshot returned for any site that has no {@code .cfg}
+     * file (and as the read-modify-write base in {@link MfaSiteConfigService#save}). It carries no
+     * login/logout URL (both {@code null} = fall back to the global config) and no factor slices,
+     * so every {@link #isEnabled} call resolves to {@code false} and {@link #isAllDefault} is
+     * {@code true}. Being immutable, it can be safely shared across all sites and threads.
+     */
     public static final MfaSiteConfig EMPTY = new MfaSiteConfig(null, null, Collections.emptyMap());
 
     private final String loginUrl;
@@ -108,6 +115,15 @@ public final class MfaSiteConfig {
 
         public static final FactorSiteState DISABLED = new FactorSiteState(false, Collections.emptyList());
 
+        /**
+         * A group name is serialized verbatim into the shared {@code .cfg} as
+         * {@code <factor>.enabledGroups=<join(",")>}. A name carrying CR, LF, {@code ','},
+         * {@code '='} or {@code '#'} could inject arbitrary config lines (e.g. forge a
+         * {@code loginUrl=} or flip another factor), so we restrict names to a safe alphabet at
+         * this single chokepoint. See {@link #clean(List)}.
+         */
+        private static final Pattern SAFE_GROUP_NAME = Pattern.compile("[A-Za-z0-9_-]+");
+
         private final boolean enabled;
         private final List<String> groups;
 
@@ -130,15 +146,30 @@ public final class MfaSiteConfig {
             return !enabled && groups.isEmpty();
         }
 
+        /**
+         * Trim, drop blanks, and reject any group name not matching {@link #SAFE_GROUP_NAME} —
+         * the single chokepoint that prevents config injection through the shared {@code .cfg}.
+         *
+         * @throws IllegalArgumentException when a name contains an unsafe character (CR, LF,
+         *         {@code ','}, {@code '='}, {@code '#'}, whitespace, ...); the GraphQL layer maps
+         *         this to a field error
+         */
         private static List<String> clean(List<String> input) {
             if (input == null) {
                 return Collections.emptyList();
             }
             List<String> cleaned = new ArrayList<>();
             for (String group : input) {
-                if (group != null && !group.trim().isEmpty()) {
-                    cleaned.add(group.trim());
+                String trimmed = group == null ? "" : group.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
                 }
+                if (!SAFE_GROUP_NAME.matcher(trimmed).matches()) {
+                    throw new IllegalArgumentException("Invalid group name '" + trimmed
+                            + "': only letters, digits, '_' and '-' are allowed (no commas, '=', '#', "
+                            + "or line breaks, which would corrupt the per-site configuration file)");
+                }
+                cleaned.add(trimmed);
             }
             return Collections.unmodifiableList(cleaned);
         }

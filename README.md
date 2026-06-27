@@ -68,6 +68,36 @@ Configuration → MFA Community* (server administrators) — or directly in the 
 | `loginGate.enabled` | `false` | Master switch for the `/cms/login` gate (see below). |
 | `loginGate.ipWhitelist` | _(empty)_ | Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate (e.g. `203.0.113.7, 10.0.0.0/8, 2001:db8::/32`). |
 
+### Per-site configuration
+
+Per-site MFA settings (loginUrl, logoutUrl, and per-factor enablement) live in a file-backed OSGi factory configuration:
+**PID:** `org.jahia.modules.mfa.extensions.site`  
+**File pattern:** `<karaf.etc>/org.jahia.modules.mfa.extensions.site-<siteKey>.cfg` (one file per site)
+
+Sites are configured and managed from the Jahia administration UI (*MFA Community → Extensions*). The MfaSiteConfigService reads/writes these configs atomically.
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `siteKey` | _(required)_ | JCR site key (e.g. `digitall`). File name derives from this: `org.jahia.modules.mfa.extensions.site-<siteKey>.cfg`. |
+| `loginUrl` | _(empty)_ | **Per-site** login URL. Overrides the global `loginUrl`. |
+| `logoutUrl` | _(empty)_ | **Per-site** logout URL. Overrides the global `logoutUrl`. |
+| `totp.enabled` | `false` | Enable TOTP for this site. |
+| `totp.enabledGroups` | _(empty)_ | Comma-separated list of user group names who may use TOTP (e.g. `editors,reviewers`). Empty or unset = all authenticated users. |
+| `webauthn.enabled` | `false` | Enable WebAuthn for this site. |
+| `webauthn.enabledGroups` | _(empty)_ | Comma-separated list of user group names who may use WebAuthn. Empty or unset = all authenticated users. |
+
+Example `<karaf.etc>/org.jahia.modules.mfa.extensions.site-digitall.cfg`:
+
+```properties
+siteKey=digitall
+loginUrl=/sites/digitall/login.html
+logoutUrl=
+totp.enabled=true
+totp.enabledGroups=editors,reviewers
+webauthn.enabled=false
+webauthn.enabledGroups=
+```
+
 Each **factor** keeps its own PID for factor-specific keys. TOTP (`org.jahia.modules.totp`,
 shipped by `totp/src/main/resources/META-INF/configurations/org.jahia.modules.totp.cfg`):
 
@@ -85,12 +115,11 @@ callers (the actual authentication / rate limiting happens at the resolver level
 
 `MfaLoginLogoutProvider` (in the extensions bundle) implements Jahia's `LoginUrlProvider` /
 `LogoutUrlProvider` SPI. URLs are resolved **per request** with this precedence: a **per-site**
-`loginUrl` / `logoutUrl` reported by any factor through the `MfaSiteProvider` SPI (TOTP surfaces
-the values set from the site's *MFA Community → Extensions* administration page, stored on the
-`upaTotp:siteSettings` mixin) → the **global** `.cfg` value above → Jahia's default. When nothing
-is configured for a site the provider returns nothing, so deploying the module never hijacks
-login on its own. Global `.cfg` edits are applied live (no restart); per-site values take effect
-immediately on save.
+`loginUrl` / `logoutUrl` from the file-backed per-site OSGi factory config (one
+`<karaf.etc>/org.jahia.modules.mfa.extensions.site-<siteKey>.cfg` per site) → the **global**
+`.cfg` value above → Jahia's default. When nothing is configured for a site the provider returns
+nothing, so deploying the module never hijacks login on its own. Global `.cfg` edits are applied
+live (no restart); per-site values take effect immediately on save.
 
 **Return-to-target (`redirect=`):** the provider appends a `redirect=` parameter to the
 login/logout URL it serves, carrying the page the user was actually after — the URL whose 401

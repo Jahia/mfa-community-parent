@@ -39,6 +39,7 @@ const ResetUserSection = ({siteKey}) => {
 
     return (
         <section data-testid="reset-user-section">
+            <style>{'.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}'}</style>
             <Typography variant="heading" style={{display: 'block', marginBottom: 8}}>
                 {t('siteSettings.reset.title')}
             </Typography>
@@ -51,6 +52,7 @@ const ResetUserSection = ({siteKey}) => {
                        placeholder={t('siteSettings.reset.placeholder')}
                        aria-label={t('siteSettings.reset.placeholder')}
                        data-testid="reset-user-input"
+                       className="mfa-admin-input"
                        style={{padding: '0.4rem', minWidth: 240, minHeight: 44, boxSizing: 'border-box',
                                borderRadius: 4, border: '1px solid #767676'}}
                        onChange={e => {

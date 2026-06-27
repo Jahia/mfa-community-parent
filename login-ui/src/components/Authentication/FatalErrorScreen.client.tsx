@@ -71,7 +71,7 @@ export default function FatalErrorScreen({
         <Trans i18nKey="fatal.title" />
       </h2>
       {message && <ErrorMessage message={message} />}
-      <hr />
+      <hr aria-hidden="true" />
       {!inProgress && (
         <div data-testid="additional-action" className={classes.additionalAction}>
           <button

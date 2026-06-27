@@ -604,8 +604,15 @@ public class TotpFactorMutation {
         }
         // Authorization gate (site admin). No JCR write anymore - persistence is the per-site .cfg.
         TotpAdminAccess.requireSiteAdmin(siteKey);
+        // The login/logout URLs are factor-agnostic and shared in the per-site .cfg. Distinguish
+        // "omitted" (arg == null -> keep the stored URL) from "explicit clear" (arg == "" -> store
+        // null) BEFORE validation collapses both to null. Only when at least one URL arg is present
+        // do we write the URLs through; otherwise the store performs a partial update that preserves
+        // any previously stored URLs (avoids the data-loss erase when only enabled/groups change).
+        boolean urlsProvided = (loginUrl != null || logoutUrl != null);
         // Open-redirect guard: only server-relative paths may be stored. Validate here (clear,
         // field-specific error for the UI) on top of the enforcement inside the store itself.
+        // validateSiteRelativeUrl("") returns null, which is the correct "clear" value.
         String cleanLoginUrl;
         String cleanLogoutUrl;
         try {
@@ -618,13 +625,16 @@ public class TotpFactorMutation {
         }
         try {
             siteSettingsStore.save(siteKey, new TotpSiteSettingsStore.TotpSiteSettings(
-                    enabled, enabledGroups, cleanLoginUrl, cleanLogoutUrl));
+                    enabled, enabledGroups, cleanLoginUrl, cleanLogoutUrl, urlsProvided));
+            // Report the URLs that are actually in effect after the write: the submitted values
+            // when provided, otherwise the ones that survived the partial update.
+            TotpSiteSettingsStore.TotpSiteSettings effective = siteSettingsStore.load(siteKey);
             auditLog.recordEvent("setSiteSettings", OUTCOME_SUCCESS, currentUserName(), siteKey,
                     "enabled=" + enabled
-                            + ", loginUrl=" + StringUtils.defaultString(cleanLoginUrl)
-                            + ", logoutUrl=" + StringUtils.defaultString(cleanLogoutUrl));
+                            + ", loginUrl=" + StringUtils.defaultString(effective.getLoginUrl())
+                            + ", logoutUrl=" + StringUtils.defaultString(effective.getLogoutUrl()));
             return new TotpSiteSettingsResult(siteKey, enabled, enabledGroups,
-                    cleanLoginUrl, cleanLogoutUrl);
+                    effective.getLoginUrl(), effective.getLogoutUrl());
         } catch (IOException e) {
             logger.warn("Failed to save TOTP site settings for {}: {}", siteKey, e.getMessage());
             throw new DataFetchingException(ERROR_INTERNAL);

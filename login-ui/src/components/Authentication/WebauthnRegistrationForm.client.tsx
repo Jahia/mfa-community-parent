@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApiRoot } from "../../hooks/ApiRootContext";
 import {
@@ -33,6 +33,18 @@ export default function WebauthnRegistrationForm(props: Readonly<WebauthnRegistr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const supported = isWebauthnSupported();
+  const registerButtonRef = useRef<HTMLButtonElement>(null);
+  const unsupportedAlertRef = useRef<HTMLParagraphElement>(null);
+
+  // Move focus to the primary action (or the unsupported alert) on mount so keyboard and
+  // switch-access users are not stranded after the step transition (mirrors WebauthnVerificationForm).
+  useEffect(() => {
+    if (supported) {
+      registerButtonRef.current?.focus();
+    } else {
+      unsupportedAlertRef.current?.focus();
+    }
+  }, [supported]);
 
   const fail = (mfaError: MfaError) => {
     setError(translateError(t, mfaError));
@@ -96,6 +108,7 @@ export default function WebauthnRegistrationForm(props: Readonly<WebauthnRegistr
           <ErrorMessage message={error} />
           <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
             <button
+              ref={registerButtonRef}
               type="button"
               disabled={busy}
               aria-busy={busy}
@@ -108,7 +121,7 @@ export default function WebauthnRegistrationForm(props: Readonly<WebauthnRegistr
           </div>
         </>
       ) : (
-        <p className={classes.helpText} role="alert" data-testid="webauthn-unsupported">
+        <p ref={unsupportedAlertRef} tabIndex={-1} className={classes.helpText} role="alert" data-testid="webauthn-unsupported">
           <Trans i18nKey="factor.webauthn.unsupported" />
         </p>
       )}

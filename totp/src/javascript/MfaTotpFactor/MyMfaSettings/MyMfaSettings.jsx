@@ -44,7 +44,12 @@ const MyMfaSettings = () => {
     const [disableOpen, setDisableOpen] = useState(false);
     const [regenOpen, setRegenOpen] = useState(false);
     const [backupCodes, setBackupCodes] = useState(null);
-    const [errorKey, setErrorKey] = useState(null);
+    // Error state is scoped per surface so a dialog error never leaks under the page header:
+    // pageErrorKey covers the enroll-start action shown on the page, the others are per-dialog.
+    const [pageErrorKey, setPageErrorKey] = useState(null);
+    const [enrollErrorKey, setEnrollErrorKey] = useState(null);
+    const [disableErrorKey, setDisableErrorKey] = useState(null);
+    const [regenErrorKey, setRegenErrorKey] = useState(null);
 
     const {data, loading, refetch} = useQuery(StatusQuery, {fetchPolicy: 'network-only'});
 
@@ -54,10 +59,10 @@ const MyMfaSettings = () => {
     const [enrollMutation, {loading: enrollLoading}] = useMutation(EnrollMutation, {
         onCompleted: res => {
             setEnrollData(res.upa.mfaFactors.totp.enroll);
-            setErrorKey(null);
+            setEnrollErrorKey(null);
             setEnrollOpen(true);
         },
-        onError: err => setErrorKey(mapError(err))
+        onError: err => setPageErrorKey(mapError(err))
     });
 
     const [confirmMutation, {loading: confirmLoading}] = useMutation(ConfirmEnrollMutation, {
@@ -65,10 +70,10 @@ const MyMfaSettings = () => {
             setEnrollData(null);
             setEnrollOpen(false);
             setBackupCodes(res.upa.mfaFactors.totp.confirmEnroll.backupCodes);
-            setErrorKey(null);
+            setEnrollErrorKey(null);
             refetch();
         },
-        onError: err => setErrorKey(mapError(err))
+        onError: err => setEnrollErrorKey(mapError(err))
     });
 
     const [disableMutation, {loading: disableLoading}] = useMutation(DisableMutation, {
@@ -76,40 +81,41 @@ const MyMfaSettings = () => {
         awaitRefetchQueries: true,
         onCompleted: () => {
             setDisableOpen(false);
-            setErrorKey(null);
+            setDisableErrorKey(null);
         },
-        onError: err => setErrorKey(mapError(err))
+        onError: err => setDisableErrorKey(mapError(err))
     });
 
     const [regenMutation, {loading: regenLoading}] = useMutation(RegenerateBackupCodesMutation, {
         onCompleted: res => {
             setRegenOpen(false);
             setBackupCodes(res.upa.mfaFactors.totp.regenerateBackupCodes.backupCodes);
-            setErrorKey(null);
+            setRegenErrorKey(null);
             refetch();
         },
-        onError: err => setErrorKey(mapError(err))
+        onError: err => setRegenErrorKey(mapError(err))
     });
 
     const startEnroll = () => {
-        setErrorKey(null);
+        setPageErrorKey(null);
+        setEnrollErrorKey(null);
         enrollMutation({variables: {force: false}});
     };
 
     const openRegen = () => {
-        setErrorKey(null);
+        setRegenErrorKey(null);
         setRegenOpen(true);
     };
 
     const openDisable = () => {
-        setErrorKey(null);
+        setDisableErrorKey(null);
         setDisableOpen(true);
     };
 
     const closeEnroll = () => {
         setEnrollOpen(false);
         setEnrollData(null);
-        setErrorKey(null);
+        setEnrollErrorKey(null);
     };
 
     const mainActions = isEnrolled ? [
@@ -158,12 +164,12 @@ const MyMfaSettings = () => {
                                     t('descriptionEnabled', {count: (status && status.remainingBackupCodes) || 0}) :
                                     t('descriptionDisabled')}
                             </Typography>
-                            {errorKey && (
+                            {pageErrorKey && (
                                 <Typography role="alert"
                                             style={{marginTop: 16, color: '#a00000', display: 'block'}}
                                             data-testid="mfa-error"
                                 >
-                                    {t(errorKey)}
+                                    {t(pageErrorKey)}
                                 </Typography>
                             )}
                         </>
@@ -173,7 +179,7 @@ const MyMfaSettings = () => {
                         isOpen={enrollOpen}
                         enrollData={enrollData}
                         isLoading={confirmLoading}
-                        errorKey={errorKey}
+                        errorKey={enrollErrorKey}
                         onCancel={closeEnroll}
                         onConfirm={code => confirmMutation({variables: {code}})}
                     />
@@ -186,7 +192,7 @@ const MyMfaSettings = () => {
                         acceptLabel={t('disable')}
                         acceptColor="danger"
                         isLoading={disableLoading}
-                        errorKey={errorKey}
+                        errorKey={disableErrorKey}
                         onCancel={() => setDisableOpen(false)}
                         onAccept={code => disableMutation({variables: {code}})}
                     />
@@ -198,7 +204,7 @@ const MyMfaSettings = () => {
                         description={t('regenDialog.description')}
                         acceptLabel={t('regenerate')}
                         isLoading={regenLoading}
-                        errorKey={errorKey}
+                        errorKey={regenErrorKey}
                         onCancel={() => setRegenOpen(false)}
                         onAccept={code => regenMutation({variables: {code}})}
                     />

@@ -1,7 +1,7 @@
 import React from 'react';
 import {useTranslation} from 'react-i18next';
 import {useLazyQuery} from '@apollo/client';
-import {Button, Key, Typography} from '@jahia/moonstone';
+import {Button, Key, Loader, Typography} from '@jahia/moonstone';
 import {AuditEventsQuery, EnrollmentReportQuery} from './SiteSettings.gql';
 
 const formatTs = ts => {
@@ -52,6 +52,19 @@ const AuditReportSection = ({siteKey}) => {
                         onClick={() => loadReport()}/>
             </div>
 
+            {report.loading && (
+                <div data-testid="report-loading" style={{marginBottom: 24}}><Loader/></div>
+            )}
+
+            {report.error && (
+                <Typography role="alert"
+                            data-testid="report-error"
+                            style={{color: '#a00000', display: 'block', marginBottom: 24}}
+                >
+                    {t('siteSettings.audit.reportError')}
+                </Typography>
+            )}
+
             {reportData && (
                 <div data-testid="enrollment-report" style={{marginBottom: 24}}>
                     <Typography style={{display: 'block'}}>
@@ -67,6 +80,25 @@ const AuditReportSection = ({siteKey}) => {
                         </Typography>
                     )}
                 </div>
+            )}
+
+            {audit.loading && (
+                <div data-testid="audit-loading" style={{marginBottom: 24}}><Loader/></div>
+            )}
+
+            {audit.error && (
+                <Typography role="alert"
+                            data-testid="audit-error"
+                            style={{color: '#a00000', display: 'block', marginBottom: 24}}
+                >
+                    {t('siteSettings.audit.error')}
+                </Typography>
+            )}
+
+            {audit.called && !audit.loading && !audit.error && events.length === 0 && (
+                <Typography data-testid="audit-empty" style={{display: 'block', color: '#555', marginBottom: 24}}>
+                    {t('siteSettings.audit.noEvents')}
+                </Typography>
             )}
 
             {events.length > 0 && (

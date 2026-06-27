@@ -108,6 +108,37 @@ public class MfaExtensionsConfigSupportTest {
     }
 
     @Test
+    public void acceptsSafeServerRelativeAndHttpAbsoluteGlobalUrls() {
+        Dictionary<String, Object> props = new Hashtable<>();
+        MfaExtensionsConfigSupport.applyUpdate(props,
+                update(null, null, null, null, "/sites/a/login.html", "https://sso.example.com/logout"),
+                REGISTERED);
+        assertEquals("/sites/a/login.html", props.get("loginUrl"));
+        assertEquals("https://sso.example.com/logout", props.get("logoutUrl"));
+    }
+
+    @Test
+    public void rejectsDangerousSchemeGlobalUrls() {
+        for (String bad : new String[]{"javascript:alert(1)", "DATA:text/html;base64,x",
+                " vbscript:msgbox", "//evil.example", "ftp://x", "not a url"}) {
+            Dictionary<String, Object> props = new Hashtable<>();
+            MfaExtensionsConfigSupport.Update u = update(null, null, null, null, bad, null);
+            IllegalArgumentException e = assertThrows("loginUrl '" + bad + "'", IllegalArgumentException.class,
+                    () -> MfaExtensionsConfigSupport.applyUpdate(props, u, REGISTERED));
+            assertEquals(MfaExtensionsConfigSupport.ERROR_INVALID_URL, e.getMessage());
+        }
+    }
+
+    @Test
+    public void blankGlobalUrlClearsTheKey() {
+        Dictionary<String, Object> props = new Hashtable<>();
+        props.put("loginUrl", "/old");
+        MfaExtensionsConfigSupport.applyUpdate(props,
+                update(null, null, null, null, "  ", null), REGISTERED);
+        assertEquals("", props.get("loginUrl"));
+    }
+
+    @Test
     public void readsDefaultsWhenPropertiesAbsent() {
         MfaExtensionsConfiguration cfg = MfaExtensionsConfigSupport.read(null, REGISTERED);
         assertTrue(cfg.getEnforcedFactors().isEmpty());

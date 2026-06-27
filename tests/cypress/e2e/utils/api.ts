@@ -161,3 +161,38 @@ export function firstErrorMessage(response: any): string | undefined {
     }
     return undefined;
 }
+
+/**
+ * Read the per-site OSGi factory config file that the backend writes to
+ * `<karaf.etc>/org.jahia.modules.mfa.extensions.site-<siteKey>.cfg`.
+ *
+ * Returns the file's text content when it exists, or the sentinel string
+ * "ABSENT" when it does not. Uses cy.executeGroovy so the check runs
+ * inside the Jahia container (where karaf.etc is accessible) rather than
+ * from the Cypress host.
+ *
+ * Usage:
+ *   getSiteConfigFile('my-site').should('include', 'totp.enabled=true');
+ *   getSiteConfigFile('my-site').should('eq', 'ABSENT');
+ */
+export function getSiteConfigFile(siteKey: string): Cypress.Chainable<string> {
+    const script = [
+        `def f = new File(System.getProperty("karaf.etc"), "org.jahia.modules.mfa.extensions.site-${siteKey}.cfg")`,
+        'return f.exists() ? f.text : "ABSENT"',
+    ].join('\n');
+    const password = Cypress.env('SUPER_USER_PASSWORD') as string;
+    return cy.request({
+        method: 'POST',
+        url: '/modules/tools/groovyConsole.jsp',
+        auth: {user: 'root', pass: password},
+        form: true,
+        body: {script, runScript: 'true'},
+    }).then(response => {
+        // The groovy console renders the return value inside the result fieldset:
+        // <strong>Result:</strong><br/> <pre>...</pre>. Extract that <pre> (the help text
+        // further down also contains <pre> blocks, so anchor on the Result label).
+        const body: string = response.body as string;
+        const match = /<strong>Result:<\/strong>[\s\S]*?<pre>([\s\S]*?)<\/pre>/.exec(body);
+        return match ? match[1].trim() : body.trim();
+    });
+}

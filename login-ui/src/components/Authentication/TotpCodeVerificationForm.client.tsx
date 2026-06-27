@@ -181,7 +181,7 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
             {props.content.totpCodeVerificationSubmitButtonLabel}
           </button>
         </div>
-        <hr />
+        <hr aria-hidden="true" />
         <div className={classes.additionalAction}>
           <button
             type="button"

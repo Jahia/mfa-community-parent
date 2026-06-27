@@ -56,10 +56,12 @@ const EnrollDialog = ({isOpen, enrollData, isLoading, errorKey, onCancel, onConf
                            inputMode="numeric"
                            placeholder="123456"
                            aria-label={t('enrollDialog.step2')}
+                           aria-describedby={errorKey ? 'enroll-dialog-error' : undefined}
                            style={{marginTop: 8}}
                            onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}/>
                     {errorKey && (
-                        <Typography role="alert"
+                        <Typography id="enroll-dialog-error"
+                                    role="alert"
                                     style={{marginTop: 12, color: '#a00000', display: 'block'}}
                                     data-testid="enroll-error"
                         >

@@ -14,7 +14,7 @@ import AuditReportSection from './MfaWebauthn/SiteSettings/AuditReportSection';
 const SITE_ADMIN_GUARDS = {
     requiredSitePermission: 'siteAdminAccess',
     isEnabled: siteKey => siteKey !== 'systemsite',
-    // jcontent expects a STRING and checks site.installedModulesWithAllDependencies.indexOf(value);
+    // Jcontent expects a STRING and checks site.installedModulesWithAllDependencies.indexOf(value);
     // an array never matches. The dependency set is included, so gating the shared entries on the
     // extensions module shows them whenever any factor is enabled on the site.
     requireModuleInstalledOnSite: 'mfa-factors-extensions'

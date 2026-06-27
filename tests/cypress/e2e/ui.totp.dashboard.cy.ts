@@ -58,6 +58,7 @@ describe('TOTP dashboard UI', () => {
                         expect(codes, 'backup codes count').to.have.length.greaterThan(0);
                         codes.forEach(bc => expect(bc).to.have.length.greaterThan(4));
                     });
+                cy.get('[data-testid="backup-codes-ack"]').check();
                 cy.get('[data-testid="backup-codes-close-btn"]').click();
 
                 // 4. Enrolled-state buttons are now visible.
@@ -95,6 +96,7 @@ describe('TOTP dashboard UI', () => {
                     .invoke('text')
                     .then(firstSetRaw => {
                         const firstSet = firstSetRaw.trim();
+                        cy.get('[data-testid="backup-codes-ack"]').check();
                         cy.get('[data-testid="backup-codes-close-btn"]').click();
 
                         // Wait past the 30s step to dodge replay rejection. The code must be
@@ -116,6 +118,7 @@ describe('TOTP dashboard UI', () => {
                                 expect(secondSet).to.have.length.greaterThan(0);
                                 expect(secondSet).to.not.equal(firstSet);
                             });
+                        cy.get('[data-testid="backup-codes-ack"]').check();
                         cy.get('[data-testid="backup-codes-close-btn"]').click();
                     });
             });

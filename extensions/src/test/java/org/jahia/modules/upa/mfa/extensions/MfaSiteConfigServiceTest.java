@@ -7,11 +7,13 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Dictionary;
 import java.util.Hashtable;
 import java.util.Properties;
+import java.util.concurrent.CyclicBarrier;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -181,6 +183,165 @@ public class MfaSiteConfigServiceTest {
                 // expected
             } catch (Exception e) {
                 fail("Expected IllegalArgumentException for siteKey '" + bad + "' but got " + e);
+            }
+        }
+    }
+
+    // --- Concurrency: writeLock serializes two simultaneous save() calls ---------------------
+
+    @Test
+    public void concurrentSavesOnTwoFactorsBothSurviveAndHitTheFile() throws Exception {
+        for (int i = 0; i < 50; i++) {
+            final MfaSiteConfigService svc = new MfaSiteConfigService();
+            final CyclicBarrier barrier = new CyclicBarrier(2);
+            final AtomicReferenceThrowable failure = new AtomicReferenceThrowable();
+
+            Runnable enableTotp = () -> awaitThen(barrier, failure, () ->
+                    svc.save("digitall", c -> c.withFactor(FACTOR_TOTP, true, null)));
+            Runnable enableWebauthn = () -> awaitThen(barrier, failure, () ->
+                    svc.save("digitall", c -> c.withFactor(FACTOR_WEBAUTHN, true, null)));
+
+            Thread t1 = new Thread(enableTotp);
+            Thread t2 = new Thread(enableWebauthn);
+            t1.start();
+            t2.start();
+            t1.join();
+            t2.join();
+            if (failure.error != null) {
+                fail("save() threw under concurrency: " + failure.error);
+            }
+
+            MfaSiteConfig config = svc.getConfig("digitall");
+            assertTrue("iteration " + i + ": TOTP enabled", config.isEnabled(FACTOR_TOTP));
+            assertTrue("iteration " + i + ": WebAuthn enabled", config.isEnabled(FACTOR_WEBAUTHN));
+
+            String fileContent = new String(Files.readAllBytes(cfgFile("digitall")), StandardCharsets.UTF_8);
+            assertTrue("iteration " + i + ": .cfg has totp.enabled=true",
+                    fileContent.contains("totp.enabled=true"));
+            assertTrue("iteration " + i + ": .cfg has webauthn.enabled=true",
+                    fileContent.contains("webauthn.enabled=true"));
+        }
+    }
+
+    // --- karaf.base fallback when karaf.etc is unset -----------------------------------------
+
+    @Test
+    public void writesUnderKarafBaseEtcWhenKarafEtcIsUnset() throws Exception {
+        System.clearProperty("karaf.etc");
+        Path etcUnderBase = Files.createDirectory(etc.getRoot().toPath().resolve("etc"));
+        System.setProperty("karaf.base", etc.getRoot().getAbsolutePath());
+        try {
+            MfaSiteConfigService svc = new MfaSiteConfigService();
+            svc.save("digitall", c -> c.withFactor(FACTOR_TOTP, true, null));
+            assertTrue("the .cfg must land under <karaf.base>/etc",
+                    Files.exists(etcUnderBase.resolve(MfaSiteConfigService.FACTORY_PID + "-digitall.cfg")));
+        } finally {
+            System.clearProperty("karaf.base");
+        }
+    }
+
+    // --- isAllDefault: a URL-only config (no factors) is RETAINED ----------------------------
+
+    @Test
+    public void urlOnlyConfigIsRetainedAndClearingTheUrlDeletesIt() throws Exception {
+        // Only a loginUrl, every factor disabled → still meaningful → file retained.
+        service.save("digitall", current -> current.withUrls("/login.html", null));
+        assertTrue(Files.exists(cfgFile("digitall")));
+        assertEquals("/login.html", service.getConfig("digitall").getLoginUrl());
+
+        // Clearing the URL leaves an all-default config → file deleted.
+        service.save("digitall", current -> current.withUrls(null, null));
+        assertFalse(Files.exists(cfgFile("digitall")));
+        assertEquals(MfaSiteConfig.EMPTY, service.getConfig("digitall"));
+    }
+
+    // --- etcDir cache: the resolved directory is reused across writes ------------------------
+
+    @Test
+    public void etcDirIsCachedAfterTheFirstWrite() throws Exception {
+        service.save("siteA", current -> current.withFactor(FACTOR_TOTP, true, null));
+        assertTrue(Files.exists(cfgFile("siteA")));
+
+        // Clear the system property: a non-cached resolve would now fail. The cached dir is reused.
+        System.clearProperty("karaf.etc");
+        service.save("siteB", current -> current.withFactor(FACTOR_TOTP, true, null));
+        assertTrue("second write must reuse the cached etc dir", Files.exists(cfgFile("siteB")));
+    }
+
+    // --- PID-rename: the stale siteKey entry is evicted --------------------------------------
+
+    @Test
+    public void pidRenameEvictsTheStaleSiteEntry() {
+        service.updated("pid1", props("siteKey", "siteA", "totp.enabled", "true"));
+        assertTrue(service.getConfig("siteA").isEnabled(FACTOR_TOTP));
+
+        // Same pid now points at a different site: the old entry must be removed.
+        service.updated("pid1", props("siteKey", "siteB", "totp.enabled", "true"));
+        assertEquals(MfaSiteConfig.EMPTY, service.getConfig("siteA"));
+        assertTrue(service.getConfig("siteB").isEnabled(FACTOR_TOTP));
+    }
+
+    // --- Group-name validation (config-injection chokepoint) ---------------------------------
+
+    @Test
+    public void groupNameWithNewlineOrCommaIsRejected() {
+        for (String bad : new String[]{"editors\nloginUrl=/evil", "a,b", "a=b", "with space", "a#b"}) {
+            try {
+                service.save("digitall", current ->
+                        current.withFactor(FACTOR_TOTP, true, java.util.Collections.singletonList(bad)));
+                fail("Expected rejection of unsafe group name: '" + bad + "'");
+            } catch (IllegalArgumentException expected) {
+                // expected
+            } catch (Exception e) {
+                fail("Expected IllegalArgumentException for group '" + bad + "' but got " + e);
+            }
+        }
+    }
+
+    // --- Readiness: eager activate() scan loads a pre-existing .cfg ---------------------------
+
+    @Test
+    public void activateEagerlyLoadsPreexistingCfgAndIsReady() throws Exception {
+        // A .cfg already sitting in the etc dir before the component activates.
+        Path file = cfgFile("preexisting");
+        Files.write(file, ("siteKey=preexisting\n"
+                + "loginUrl=/login.html\n"
+                + "totp.enabled=true\n"
+                + "totp.enabledGroups=editors\n").getBytes(StandardCharsets.UTF_8));
+
+        MfaSiteConfigService svc = new MfaSiteConfigService();
+        assertFalse("not ready before activate", svc.isReady());
+        svc.activate();
+
+        assertTrue("ready after the eager scan", svc.isReady());
+        MfaSiteConfig config = svc.getConfig("preexisting");
+        assertTrue(config.isEnabled(FACTOR_TOTP));
+        assertEquals("/login.html", config.getLoginUrl());
+        assertEquals(java.util.Collections.singletonList("editors"), config.enabledGroups(FACTOR_TOTP));
+    }
+
+    /** Run an action after both threads reach the barrier; record the first throwable. */
+    private static void awaitThen(CyclicBarrier barrier, AtomicReferenceThrowable failure, ThrowingRunnable action) {
+        try {
+            barrier.await();
+            action.run();
+        } catch (Exception e) {
+            failure.set(e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    /** Tiny holder so the worker threads can report a failure back to the test thread. */
+    private static final class AtomicReferenceThrowable {
+        private volatile Throwable error;
+
+        private synchronized void set(Throwable t) {
+            if (error == null) {
+                error = t;
             }
         }
     }
