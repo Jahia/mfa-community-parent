@@ -38,6 +38,8 @@ export default function WebauthnRegistrationForm(props: Readonly<WebauthnRegistr
 
   // Move focus to the primary action (or the unsupported alert) on mount so keyboard and
   // switch-access users are not stranded after the step transition (mirrors WebauthnVerificationForm).
+  // `supported` is a synchronous capability check whose result is stable for the lifetime of the
+  // component, so including it in the dependency array is correct and exhaustive-deps-clean.
   useEffect(() => {
     if (supported) {
       registerButtonRef.current?.focus();

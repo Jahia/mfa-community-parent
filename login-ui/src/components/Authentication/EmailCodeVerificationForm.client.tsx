@@ -150,6 +150,8 @@ export default function EmailCodeVerificationForm(
           <button
             type="submit"
             disabled={code.length !== CODE_LENGTH || submitting}
+            aria-busy={submitting}
+            aria-describedby="emailCode-error"
             data-testid="email-verification-submit"
             className={classes.submitButton}
           >

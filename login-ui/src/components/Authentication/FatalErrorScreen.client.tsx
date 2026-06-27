@@ -72,18 +72,18 @@ export default function FatalErrorScreen({
       </h2>
       {message && <ErrorMessage message={message} />}
       <hr aria-hidden="true" />
-      {!inProgress && (
-        <div data-testid="additional-action" className={classes.additionalAction}>
-          <button
-            type="button"
-            data-testid="restart-login"
-            className={classes.toggleMode}
-            onClick={restartLogin}
-          >
-            <Trans i18nKey="suspended.restart_login" />
-          </button>
-        </div>
-      )}
+      <div data-testid="additional-action" className={classes.additionalAction}>
+        <button
+          type="button"
+          data-testid="restart-login"
+          className={classes.toggleMode}
+          disabled={inProgress}
+          aria-busy={inProgress}
+          onClick={restartLogin}
+        >
+          <Trans i18nKey="suspended.restart_login" />
+        </button>
+      </div>
     </>
   );
 }
