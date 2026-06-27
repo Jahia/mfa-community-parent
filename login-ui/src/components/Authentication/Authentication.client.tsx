@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LoginForm from "./LoginForm.client";
 import { ApiRootContext } from "../../hooks/ApiRootContext";
 import TotpCodeVerificationForm from "./TotpCodeVerificationForm.client";
@@ -35,6 +35,21 @@ export default function Authentication({
   const [activeFactor, setActiveFactor] = useState<string | null>(null);
   const [enrollableFactors, setEnrollableFactors] = useState<string[]>([]);
   const [enrollFactor, setEnrollFactor] = useState<string | null>(null);
+
+  // Focus management (WCAG 2.4.3): the chooser, enrollment-chooser and fatal-error steps have no
+  // text input to anchor focus on, so without help focus lands on <body> after the step swaps in.
+  // Move focus to the step's heading on those transitions. Verification/enrollment forms keep
+  // their own input/button focus and opt out by leaving headingRef unattached.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const isChooserStep =
+    step === Step.CHOOSE_FACTOR ||
+    step === Step.FATAL_ERROR ||
+    (step === Step.ENROLL && !enrollFactor);
+  useEffect(() => {
+    if (isChooserStep) {
+      headingRef.current?.focus();
+    }
+  }, [step, enrollFactor, isChooserStep]);
 
   /**
    * A factor finished (verified or drained). With other factors still required, continue the
@@ -96,6 +111,18 @@ export default function Authentication({
     setStep(Step.VERIFY);
   };
 
+  // Item 11: escape hatch from a verification form back to the factor chooser (wrong factor
+  // picked, device unavailable). Only meaningful when more than one factor was offered.
+  const onBackToFactorChooser = () => {
+    setActiveFactor(null);
+    setStep(Step.CHOOSE_FACTOR);
+  };
+
+  // Escape hatch from an enrollment setup form back to the enrollment chooser.
+  const onBackToEnrollChooser = () => {
+    setEnrollFactor(null);
+  };
+
   const onFatalError = (error: MfaError) => {
     setFatalError(error);
     setStep(Step.FATAL_ERROR);
@@ -126,6 +153,10 @@ export default function Authentication({
 
   // Dispatch to the right verification form. Unknown factor types fall back to a
   // FatalErrorScreen with a clear error code so the user can restart cleanly.
+  // A verify form may offer a "Use a different method" control only when the user actually had a
+  // choice (more than one factor available).
+  const onChangeMethod = availableFactors.length > 1 ? onBackToFactorChooser : undefined;
+
   const renderVerificationForm = () => {
     switch (activeFactor) {
       case "totp":
@@ -135,10 +166,17 @@ export default function Authentication({
             onSuccess={onFactorCompleted}
             onEnrollmentRequired={onEnrollmentRequired}
             onFatalError={onFatalError}
+            onChangeMethod={onChangeMethod}
           />
         );
       case "email_code":
-        return <EmailCodeVerificationForm onSuccess={onFactorCompleted} onFatalError={onFatalError} />;
+        return (
+          <EmailCodeVerificationForm
+            onSuccess={onFactorCompleted}
+            onFatalError={onFatalError}
+            onChangeMethod={onChangeMethod}
+          />
+        );
       case "webauthn":
         return (
           <WebauthnVerificationForm
@@ -146,6 +184,7 @@ export default function Authentication({
             onSuccess={onFactorCompleted}
             onEnrollmentRequired={onEnrollmentRequired}
             onFatalError={onFatalError}
+            onChangeMethod={onChangeMethod}
           />
         );
       default:
@@ -153,26 +192,50 @@ export default function Authentication({
           <FatalErrorScreen
             error={{ code: "factor_type_not_supported", arguments: [{ name: "factorType", value: activeFactor ?? "" }] }}
             onResetFlow={onResetFlow}
+            headingRef={headingRef}
           />
         );
     }
   };
 
   // Inline enrollment: a chooser when several factors are offered, then the factor's setup form.
+  // An enrollment setup form may offer a "Choose a different setup method" control only when the
+  // user actually had a choice (more than one enrollable factor).
+  const onChangeEnrollMethod = enrollableFactors.length > 1 ? onBackToEnrollChooser : undefined;
+
   const renderEnrollment = () => {
     if (!enrollFactor) {
-      return <EnrollmentChooser factors={enrollableFactors} onSelect={onEnrollFactorPicked} />;
+      return (
+        <EnrollmentChooser
+          factors={enrollableFactors}
+          onSelect={onEnrollFactorPicked}
+          headingRef={headingRef}
+        />
+      );
     }
     switch (enrollFactor) {
       case "totp":
-        return <TotpEnrollmentForm onComplete={onFactorCompleted} onFatalError={onFatalError} />;
+        return (
+          <TotpEnrollmentForm
+            onComplete={onFactorCompleted}
+            onFatalError={onFatalError}
+            onChangeMethod={onChangeEnrollMethod}
+          />
+        );
       case "webauthn":
-        return <WebauthnRegistrationForm onComplete={onFactorCompleted} onFatalError={onFatalError} />;
+        return (
+          <WebauthnRegistrationForm
+            onComplete={onFactorCompleted}
+            onFatalError={onFatalError}
+            onChangeMethod={onChangeEnrollMethod}
+          />
+        );
       default:
         return (
           <FatalErrorScreen
             error={{ code: "factor_type_not_supported", arguments: [{ name: "factorType", value: enrollFactor }] }}
             onResetFlow={onResetFlow}
+            headingRef={headingRef}
           />
         );
     }
@@ -181,7 +244,7 @@ export default function Authentication({
   return (
     <ApiRootContext value={apiRoot}>
       {step === Step.FATAL_ERROR && fatalError && (
-        <FatalErrorScreen error={fatalError} onResetFlow={onResetFlow} />
+        <FatalErrorScreen error={fatalError} onResetFlow={onResetFlow} headingRef={headingRef} />
       )}
       {step === Step.LOGIN && (
         <LoginForm
@@ -192,7 +255,7 @@ export default function Authentication({
         />
       )}
       {step === Step.CHOOSE_FACTOR && (
-        <FactorChooser factors={availableFactors} onSelect={onFactorPicked} />
+        <FactorChooser factors={availableFactors} onSelect={onFactorPicked} headingRef={headingRef} />
       )}
       {step === Step.VERIFY && renderVerificationForm()}
       {step === Step.ENROLL && renderEnrollment()}

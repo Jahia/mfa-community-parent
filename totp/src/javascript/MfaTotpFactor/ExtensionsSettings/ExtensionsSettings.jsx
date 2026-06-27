@@ -9,7 +9,7 @@ import {mapAdminError, resolveSiteKey} from '../SiteSettings/siteSettings.util';
 /**
  * "MFA Community > Extensions" administration page: the per-site login/logout routing consumed
  * by the shared MfaLoginLogoutProvider (mfa-factors-extensions bundle). Only the two URLs are
- * editable here — the TOTP policy fields loaded alongside them are passed back unchanged on
+ * editable here - the TOTP policy fields loaded alongside them are passed back unchanged on
  * save, because the GraphQL mutation persists the full upaTotp:siteSettings state.
  */
 const ExtensionsSettings = () => {

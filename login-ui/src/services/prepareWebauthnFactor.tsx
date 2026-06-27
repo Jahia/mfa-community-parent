@@ -1,4 +1,4 @@
-import { type BaseError, type BaseSuccess, createError } from "./common";
+import { type BaseError, type BaseSuccess, createError, networkError } from "./common";
 
 interface PrepareWebauthnFactorResultSuccess extends BaseSuccess {
   /** The navigator.credentials.get() options JSON, or null when the factor was skipped. */
@@ -17,50 +17,53 @@ export type PrepareWebauthnFactorResult = PrepareWebauthnFactorResultSuccess | B
 export default async function prepareWebauthnFactor(
   apiRoot: string,
 ): Promise<PrepareWebauthnFactorResult> {
-  const response = await fetch(apiRoot, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: /* GraphQL */ `
-        mutation prepareWebauthnFactor($factorType: String!) {
-          upa {
-            mfaFactors {
-              webauthn {
-                prepare {
-                  publicKeyCredentialRequestOptions
-                  skipped
-                  session {
-                    initiated
-                    remainingFactors
-                    factorState(factorType: $factorType) {
-                      prepared
+  try {
+    const response = await fetch(apiRoot, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: /* GraphQL */ `
+          mutation prepareWebauthnFactor($factorType: String!) {
+            upa {
+              mfaFactors {
+                webauthn {
+                  prepare {
+                    publicKeyCredentialRequestOptions
+                    skipped
+                    session {
+                      initiated
+                      remainingFactors
+                      factorState(factorType: $factorType) {
+                        prepared
+                        error { code arguments { name value } }
+                      }
                       error { code arguments { name value } }
                     }
-                    error { code arguments { name value } }
                   }
                 }
               }
             }
           }
-        }
-      `,
-      variables: { factorType: "webauthn" },
-    }),
-  });
-  const result = await response.json();
-  const preparation = result?.data?.upa?.mfaFactors?.webauthn?.prepare;
-  const success =
-    preparation?.session?.factorState?.prepared &&
-    !preparation?.session?.factorState?.error &&
-    (preparation?.publicKeyCredentialRequestOptions || preparation?.skipped);
-  if (success) {
-    return {
-      success: true,
-      skipped: Boolean(preparation.skipped),
-      remainingFactors: preparation.session.remainingFactors,
-      requestOptionsJson: preparation.publicKeyCredentialRequestOptions ?? null,
-    };
+        `,
+        variables: { factorType: "webauthn" },
+      }),
+    });
+    const result = await response.json();
+    const preparation = result?.data?.upa?.mfaFactors?.webauthn?.prepare;
+    const success =
+      preparation?.session?.factorState?.prepared &&
+      !preparation?.session?.factorState?.error &&
+      (preparation?.publicKeyCredentialRequestOptions || preparation?.skipped);
+    if (success) {
+      return {
+        success: true,
+        skipped: Boolean(preparation.skipped),
+        remainingFactors: preparation.session.remainingFactors,
+        requestOptionsJson: preparation.publicKeyCredentialRequestOptions ?? null,
+      };
+    }
+    return createError(preparation?.session?.error, preparation?.session?.factorState?.error);
+  } catch {
+    return networkError();
   }
-
-  return createError(preparation?.session?.error, preparation?.session?.factorState?.error);
 }

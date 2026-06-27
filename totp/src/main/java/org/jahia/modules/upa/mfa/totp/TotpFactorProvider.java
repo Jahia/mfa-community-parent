@@ -4,13 +4,13 @@ import org.apache.commons.lang3.StringUtils;
 import org.jahia.modules.upa.mfa.MfaException;
 import org.jahia.modules.upa.mfa.MfaFactorProvider;
 import org.jahia.modules.upa.mfa.MfaService;
-import org.jahia.modules.upa.mfa.MfaSession;
 import org.jahia.modules.upa.mfa.PreparationContext;
 import org.jahia.modules.upa.mfa.VerificationContext;
 import org.jahia.modules.upa.mfa.extensions.BackupCodes;
+import org.jahia.modules.upa.mfa.extensions.MfaEnforcementDecider;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
-import org.jahia.modules.upa.mfa.extensions.SkippablePreparation;
+import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
@@ -19,9 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.jcr.RepositoryException;
-import javax.servlet.http.HttpServletRequest;
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -63,6 +61,13 @@ public class TotpFactorProvider implements MfaFactorProvider {
     /** Every factor's per-user configuration view, for the cross-factor "at least one" decision. */
     private final List<MfaSiteProvider> siteProviders = new CopyOnWriteArrayList<>();
 
+    /**
+     * Shared, stateless orchestration reused across prepare() calls. Built once in {@link #activate()}
+     * after the DS references are bound, over the LIVE {@link #siteProviders} list, so it keeps seeing
+     * bind/unbind updates by reference.
+     */
+    private MfaEnforcementDecider enforcementDecider;
+
     @Reference
     public void setTotpService(TotpService totpService) { this.totpService = totpService; }
 
@@ -98,243 +103,101 @@ public class TotpFactorProvider implements MfaFactorProvider {
 
     @Override
     public Serializable prepare(PreparationContext preparationContext) throws MfaException {
-        String userId = preparationContext.getSessionContext().getUserId();
-        String siteKey = preparationContext.getSessionContext().getSiteKey();
-
-        // Per-site activation / enforcement only applies when there is a real site context.
-        // Without one (e.g. a direct GraphQL verify, or a login not tied to a site) the
-        // per-site policy is meaningless, so we fall back to the standard behavior:
-        // an enrolled user is challenged; an unenrolled user is rejected with not_enrolled.
-        // (Crucially, this means we NEVER short-circuit verification when siteKey is absent.)
-        if (StringUtils.isNotBlank(siteKey)) {
-            TotpSiteSettingsStore.TotpSiteSettings siteSettings;
-            try {
-                siteSettings = siteSettingsStore.load(siteKey);
-            } catch (RepositoryException e) {
-                logger.warn("Failed to load TOTP site settings for {}: {}", siteKey, e.getMessage());
-                throw new MfaException(ERROR_INTERNAL);
-            }
-
-            // Site has TOTP disabled → skip the factor for this session. verify() will
-            // accept any submission; the login UI is expected to bypass the step entirely.
-            if (!siteSettings.isEnabled()) {
-                logger.debug("TOTP skipped for user {} (site '{}' has TOTP disabled)", userId, siteKey);
-                return new TotpPreparationResult(true);
-            }
-            // Per-group scoping: if the site restricts the policy to specific groups and the
-            // user is not a member of any of them, the factor does not apply to this user.
-            if (!isInScope(userId, siteSettings.getEnabledGroups())) {
-                logger.debug("TOTP skipped for user {} (not in any policy group on site '{}')", userId, siteKey);
-                return new TotpPreparationResult(true);
-            }
-            return prepareForSite(preparationContext, userId, siteKey);
-        }
-
-        // No site context: per-site activation cannot be evaluated, but GLOBAL enforcement still
-        // applies — an unconfigured user must reach inline enrollment here too (the login page
-        // may be served under a vanity URL that carries no /sites/<key> prefix). Without
-        // enforcement, the original behavior stands: an enrolled user is challenged, an
-        // unenrolled one is rejected.
-        if (globalPolicy.isEnforced(FACTOR_TYPE)) {
-            return prepareForGlobalOnly(preparationContext, userId);
-        }
-        if (!isEnrolled(userId)) {
-            throw new MfaException(ERROR_NOT_ENROLLED, "user", userId);
-        }
-        return new TotpPreparationResult();
+        // The per-site activation/scoping shell and the global pick-one decision table both live
+        // in the shared MfaEnforcementDecider; TOTP only contributes its factor-specific callbacks.
+        // (Crucially, when siteKey is absent we NEVER short-circuit verification - see notConfiguredError.)
+        return enforcementDecider.prepare(preparationContext, callbacks());
     }
 
     /**
-     * The enforced decision rows when no site context is available (pick-one semantics minus
-     * the per-site activation/scoping rows).
+     * Build the shared, stateless orchestration once, after all DS references are bound. DS runs the
+     * mandatory {@code @Reference} setters and only then activates the component and publishes the
+     * service, so the field is safely visible to prepare() without volatile. The live siteProviders
+     * list is passed by reference, so the single instance keeps seeing bind/unbind updates.
      */
-    private Serializable prepareForGlobalOnly(PreparationContext preparationContext, String userId)
-            throws MfaException {
-        if (anotherEnforcedFactorVerified(preparationContext)) {
-            logger.debug("TOTP skipped for user {} (another enforced factor already verified)", userId);
-            return new TotpPreparationResult(true);
-        }
-        if (isEnrolled(userId)) {
-            return new TotpPreparationResult();
-        }
-        String sibling = configuredSiblingFactor(userId);
-        if (sibling != null) {
-            warnIfSiblingNotRequired(preparationContext, userId, sibling);
-            logger.debug("TOTP skipped for user {} (enforced factor {} is configured)", userId, sibling);
-            return new TotpPreparationResult(true);
-        }
-        return prepareNoEnforcedFactor(userId, null);
+    @Activate
+    public void activate() {
+        this.enforcementDecider = new MfaEnforcementDecider(globalPolicy, mfaService, siteProviders);
     }
 
     /**
-     * The site-scoped decision once the site has TOTP enabled and the user is in scope.
-     * Enforcement is GLOBAL ({@link MfaGlobalPolicy}); a user must satisfy it with AT LEAST ONE
-     * of the enforced factors — the others skip:
-     * <ul>
-     *   <li>not globally enforced → enrolled users are challenged, others skip (opt-in);</li>
-     *   <li>enforced and another enforced factor was already verified in this MFA session →
-     *       skip (pick-one satisfied);</li>
-     *   <li>enforced and the user is enrolled here → challenge;</li>
-     *   <li>enforced, not enrolled here, but another enforced factor is configured for the
-     *       user → skip (they will verify with that one);</li>
-     *   <li>enforced and NO enforced factor configured → global grace window, then block with
-     *       {@code enrollment_required} (the login UI offers inline enrollment).</li>
-     * </ul>
+     * Factor-specific callbacks the shared orchestration delegates to. The TOTP challenge
+     * preparation is a no-op marker (codes are generated client-side by the authenticator app).
      */
-    private Serializable prepareForSite(PreparationContext preparationContext, String userId, String siteKey)
-            throws MfaException {
-        boolean enrolled = isEnrolled(userId);
-        if (!globalPolicy.isEnforced(FACTOR_TYPE)) {
-            if (!enrolled) {
-                logger.debug("TOTP skipped for user {} (not enrolled, factor not globally enforced)", userId);
-                return new TotpPreparationResult(true);
+    private MfaEnforcementDecider.FactorEnforcementCallbacks callbacks() {
+        return new MfaEnforcementDecider.FactorEnforcementCallbacks() {
+            @Override
+            public String factorType() {
+                return FACTOR_TYPE;
             }
-            return new TotpPreparationResult();
-        }
-        if (anotherEnforcedFactorVerified(preparationContext)) {
-            logger.debug("TOTP skipped for user {} (another enforced factor already verified)", userId);
-            return new TotpPreparationResult(true);
-        }
-        if (enrolled) {
-            return new TotpPreparationResult();
-        }
-        String sibling = configuredSiblingFactor(userId);
-        if (sibling != null) {
-            warnIfSiblingNotRequired(preparationContext, userId, sibling);
-            logger.debug("TOTP skipped for user {} (enforced factor {} is configured)", userId, sibling);
-            return new TotpPreparationResult(true);
-        }
-        return prepareNoEnforcedFactor(userId, siteKey);
-    }
 
-    /**
-     * The user has NONE of the globally enforced factors configured: allow sign-in during the
-     * global grace window (per-user start tracked as before), then block with
-     * {@code enrollment_required} carrying the factors the user may enroll inline.
-     */
-    private Serializable prepareNoEnforcedFactor(String userId, String siteKey) throws MfaException {
-        long graceDays = globalPolicy.getGraceDays();
-        if (graceDays > 0) {
-            long now = System.currentTimeMillis();
-            long graceStart;
-            try {
-                graceStart = userStore.getOrStartGraceMillis(userId, now);
-            } catch (RepositoryException e) {
-                logger.warn("Failed to read TOTP grace state for user {}: {}", userId, e.getMessage());
-                throw new MfaException(ERROR_INTERNAL);
+            @Override
+            public boolean isConfiguredForUser(String userId) throws MfaException {
+                return isEnrolled(userId);
             }
-            if ((now - graceStart) < graceDays * 24L * 60L * 60L * 1000L) {
-                logger.debug("Enrollment grace still active for user {} (started {}, {} days)",
-                        userId, graceStart, graceDays);
-                return new TotpPreparationResult(true);
-            }
-        }
-        auditLog.recordEvent("enrollmentRequired", "denied", userId, siteKey,
-                graceDays > 0 ? "graceExpired" : "noGrace");
-        throw new MfaException(ERROR_ENROLLMENT_REQUIRED, "user", userId,
-                "enrollableFactors", enrollableFactorsForSite(siteKey));
-    }
 
-    /**
-     * Whether another globally enforced factor was GENUINELY verified in the current MFA
-     * session. A factor drained as skipped also carries the verified flag (the client
-     * acknowledges the skip with an empty verify call), but it was never actually challenged —
-     * counting it would let two unchallenged factors skip-drain each other circularly (each
-     * pointing at the other) and complete the session with no challenge at all.
-     */
-    private boolean anotherEnforcedFactorVerified(PreparationContext preparationContext) {
-        HttpServletRequest request = preparationContext.getHttpServletRequest();
-        if (request == null) {
-            return false;
-        }
-        MfaSession session = mfaService.getMfaSession(request);
-        if (session == null) {
-            return false;
-        }
-        for (String factor : globalPolicy.getEnforcedFactors()) {
-            if (!FACTOR_TYPE.equals(factor) && session.isFactorVerified(factor)
-                    && !SkippablePreparation.isSkipDrained(session, factor)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * The first other globally enforced factor the user has configured (via the sibling
-     * {@code MfaSiteProvider}s), or {@code null}. A provider that cannot answer fails CLOSED
-     * for sign-in: the error propagates and blocks the login rather than silently skipping a
-     * factor.
-     */
-    private String configuredSiblingFactor(String userId) throws MfaException {
-        for (MfaSiteProvider provider : siteProviders) {
-            String type = provider.getFactorType();
-            if (FACTOR_TYPE.equals(type) || !globalPolicy.isEnforced(type)) {
-                continue;
-            }
-            try {
-                if (provider.isConfiguredForUser(userId)) {
-                    return type;
+            @Override
+            public long getOrStartGraceMillis(String userId, long nowMillis) throws MfaException {
+                try {
+                    return userStore.getOrStartGraceMillis(userId, nowMillis);
+                } catch (RepositoryException e) {
+                    logger.warn("Failed to read TOTP grace state for user {}: {}", userId, e.getMessage());
+                    throw new MfaException(ERROR_INTERNAL);
                 }
-            } catch (RuntimeException e) {
-                logger.warn("Failed to read {} configuration state for user {}: {}", type, userId, e.getMessage());
-                throw new MfaException(ERROR_INTERNAL);
             }
-        }
-        return null;
-    }
 
-    /**
-     * Pick-one hands verification over to the configured sibling factor — but UPA only ever
-     * challenges the factors listed in its own {@code mfaEnabledFactors}. If the sibling is
-     * missing there, this sign-in completes with NO second-factor challenge at all: an
-     * enforcement bypass caused purely by configuration. Warn loudly instead of blocking —
-     * blocking would dead-end the user, since pre-auth inline enrollment is closed once any
-     * enforced factor is owned.
-     */
-    private void warnIfSiblingNotRequired(PreparationContext preparationContext, String userId, String sibling) {
-        List<String> required = preparationContext.getSessionContext().getRequiredFactors();
-        if (required == null || !required.contains(sibling)) {
-            logger.warn("TOTP skipped for user {} because enforced factor '{}' is configured, but '{}' is not in "
-                    + "UPA's mfaEnabledFactors — this sign-in completes WITHOUT a second-factor challenge. "
-                    + "Add it to mfaEnabledFactors (PID org.jahia.modules.upa, typed .config file) so it is "
-                    + "actually verified.", userId, sibling, sibling);
-        }
-    }
+            @Override
+            public Serializable buildChallengePreparation(String userId) {
+                return new TotpPreparationResult();
+            }
 
-    /**
-     * The factors offered for inline enrollment on {@code siteKey}: the globally enforced factors
-     * that are enabled on this site (or simply installed, when no site context is available).
-     * Factors that cannot be set up from the sign-in flow (e.g. the email-code adapter) are never
-     * offered — there is no enrollment UI behind the button. A provider that cannot answer is
-     * simply not offered.
-     */
-    private String enrollableFactorsForSite(String siteKey) {
-        List<String> offered = new ArrayList<>();
-        for (String factor : globalPolicy.getEnforcedFactors()) {
-            for (MfaSiteProvider provider : siteProviders) {
-                if (!factor.equals(provider.getFactorType()) || !provider.isInlineEnrollable()) {
-                    continue;
+            @Override
+            public Serializable buildSkippedPreparation() {
+                return new TotpPreparationResult(true);
+            }
+
+            @Override
+            public void recordEnrollmentDenied(String userId, String siteKey, String detail) {
+                auditLog.recordEvent("enrollmentRequired", "denied", userId, siteKey, detail);
+            }
+
+            @Override
+            public String enrollmentRequiredErrorCode() {
+                return ERROR_ENROLLMENT_REQUIRED;
+            }
+
+            @Override
+            public String internalErrorCode() {
+                return ERROR_INTERNAL;
+            }
+
+            @Override
+            public boolean isSiteApplicable(String userId, String siteKey) throws MfaException {
+                // Load the per-site settings ONCE and check both enabled and group scope against
+                // that single snapshot.
+                TotpSiteSettingsStore.TotpSiteSettings settings;
+                try {
+                    settings = siteSettingsStore.load(siteKey);
+                } catch (RepositoryException e) {
+                    logger.warn("Failed to load TOTP site settings for {}: {}", siteKey, e.getMessage());
+                    throw new MfaException(ERROR_INTERNAL);
+                }
+                if (!settings.isEnabled()) {
+                    return false;
                 }
                 try {
-                    if (StringUtils.isBlank(siteKey) || provider.isEnabledForSite(siteKey)) {
-                        offered.add(factor);
-                    }
-                } catch (RuntimeException e) {
-                    logger.warn("Could not evaluate {} availability on site {}: {}", factor, siteKey, e.getMessage());
+                    return userStore.isMemberOfAnyGroup(userId, settings.getEnabledGroups());
+                } catch (RepositoryException e) {
+                    logger.warn("Failed to check group membership for user {}: {}", userId, e.getMessage());
+                    throw new MfaException(ERROR_INTERNAL);
                 }
             }
-        }
-        return String.join(",", offered);
-    }
 
-    private boolean isInScope(String userId, List<String> enabledGroups) throws MfaException {
-        try {
-            return userStore.isMemberOfAnyGroup(userId, enabledGroups);
-        } catch (RepositoryException e) {
-            logger.warn("Failed to check group membership for user {}: {}", userId, e.getMessage());
-            throw new MfaException(ERROR_INTERNAL);
-        }
+            @Override
+            public MfaException notConfiguredError(String userId) {
+                return new MfaException(ERROR_NOT_ENROLLED, "user", userId);
+            }
+        };
     }
 
     /**

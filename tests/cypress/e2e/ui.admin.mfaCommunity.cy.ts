@@ -5,8 +5,8 @@
  * adminRoute key `mfa-community`; children attach via the `administration-sites-mfa-community`
  * target:
  *   1. Extensions                 (mfa-community-extensions — per-site login/logout routing)
- *   2. Two-factor authentication  (mfa-factors-totp-site-settings)
- *   3. Security and passkeys      (mfa-factors-webauthn-site-settings)
+ *   2. Authenticator app (TOTP)   (mfa-factors-totp-site-settings)
+ *   3. Security keys & passkeys   (mfa-factors-webauthn-site-settings)
  *   4. Audit & reporting          (mfa-community-audit — composes both factors' audit sections)
  *
  * Routes render at /jahia/administration/<siteKey>/<routeKey>.
@@ -42,8 +42,8 @@ describe('MFA Community site administration navigation', () => {
         cy.visit(`${ADMIN}/mfa-community-extensions`);
         cy.contains('MFA Community', {timeout: 30000}).should('be.visible');
         cy.contains('Extensions').should('be.visible');
-        cy.contains('Two-factor authentication').should('be.visible');
-        cy.contains('Security and passkeys').should('be.visible');
+        cy.contains('Authenticator app (TOTP)').should('be.visible');
+        cy.contains('Security keys & passkeys').should('be.visible');
         cy.contains('Audit & reporting').should('be.visible');
     });
 
@@ -54,14 +54,14 @@ describe('MFA Community site administration navigation', () => {
         cy.get('[data-testid="extensions-settings-save-btn"]').should('be.visible');
     });
 
-    it('Two-factor authentication keeps the policy fields but no longer the URL fields', () => {
+    it('Authenticator app (TOTP) keeps the policy fields but no longer the URL fields', () => {
         cy.visit(`${ADMIN}/mfa-factors-totp-site-settings`);
         cy.get('[data-testid="site-enabled-toggle"]', {timeout: 30000}).should('exist');
         cy.get('[data-testid="site-login-url-input"]').should('not.exist');
         cy.get('[data-testid="audit-report-section"]').should('not.exist');
     });
 
-    it('Security and passkeys renders the WebAuthn policy page', () => {
+    it('Security keys & passkeys renders the WebAuthn policy page', () => {
         cy.visit(`${ADMIN}/mfa-factors-webauthn-site-settings`);
         cy.get('[data-testid="webauthn-site-enabled-toggle"]', {timeout: 30000}).should('exist');
         cy.get('[data-testid="audit-report-section"]').should('not.exist');
@@ -73,7 +73,7 @@ describe('MFA Community site administration navigation', () => {
         cy.get('[data-testid="load-audit-btn"]').should('have.length', 2);
         // Each section identifies its factor: marker attribute + a factor-specific heading.
         cy.get('[data-testid="audit-report-section"][data-factor="totp"]')
-            .should('contain.text', 'Two-factor authentication (TOTP)');
+            .should('contain.text', 'Authenticator app (TOTP)');
         cy.get('[data-testid="audit-report-section"][data-factor="webauthn"]')
             .should('contain.text', 'Security keys & passkeys (WebAuthn)');
     });

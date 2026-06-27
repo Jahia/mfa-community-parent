@@ -13,11 +13,13 @@ const SITE_ADMIN_GUARDS = {
 };
 
 export default function () {
-    console.debug('%c mfa-factors-webauthn: activation in progress', 'color: #006633');
+    if (process.env.NODE_ENV !== 'production') {
+        console.debug('%c mfa-factors-webauthn: activation in progress', 'color: #006633');
+    }
 
     // "MFA Community" group in the user dashboard. Children attach through the
     // 'dashboard-mfa-community-dashboard' target. Registered defensively because the totp and
-    // webauthn bundles each may be installed alone — whichever activates first wins.
+    // webauthn bundles each may be installed alone - whichever activates first wins.
     if (!registry.get('adminRoute', 'mfa-community-dashboard')) {
         registry.add('adminRoute', 'mfa-community-dashboard', {
             targets: ['dashboard:99.2'],
@@ -38,7 +40,7 @@ export default function () {
 
     // "MFA Community" group in site administration. Children attach through the
     // 'administration-sites-mfa-community' target. Registered defensively because the totp and
-    // webauthn bundles each may be installed alone — whichever activates first wins.
+    // webauthn bundles each may be installed alone - whichever activates first wins.
     if (!registry.get('adminRoute', 'mfa-community')) {
         registry.add('adminRoute', 'mfa-community', {
             targets: ['administration-sites:90'],
@@ -49,7 +51,7 @@ export default function () {
         });
     }
 
-    // MFA Community > Security and passkeys: per-site WebAuthn policy (enable/enforce/grace/groups).
+    // MFA Community > Security keys & passkeys: per-site WebAuthn policy (enable/enforce/grace/groups).
     registry.add('adminRoute', 'mfa-factors-webauthn-site-settings', {
         targets: ['administration-sites-mfa-community:3'],
         icon: <Key/>,

@@ -1,6 +1,5 @@
 package org.jahia.modules.upa.mfa.totp;
 
-import org.jahia.modules.upa.mfa.MfaException;
 import org.jahia.modules.upa.mfa.MfaSessionContext;
 import org.jahia.modules.upa.mfa.VerificationContext;
 import org.jahia.modules.upa.mfa.extensions.BackupCodes;
@@ -153,8 +152,4 @@ public class TotpFactorProviderTest {
             return true;
         }
     }
-
-    // unused param suppression for static analysis
-    @SuppressWarnings("unused")
-    private static void touch(MfaException e) { /* keep import */ }
 }

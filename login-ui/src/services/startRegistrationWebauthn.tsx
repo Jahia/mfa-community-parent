@@ -1,4 +1,4 @@
-import { type BaseError, topLevelError } from "./common";
+import { type BaseError, networkError, topLevelError } from "./common";
 
 export interface StartRegistrationWebauthnResultSuccess {
   success: true;
@@ -15,34 +15,38 @@ export type StartRegistrationWebauthnResult = StartRegistrationWebauthnResultSuc
 export default async function startRegistrationWebauthn(
   apiRoot: string,
 ): Promise<StartRegistrationWebauthnResult> {
-  const response = await fetch(apiRoot, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: /* GraphQL */ `
-        mutation startRegistrationWebauthn {
-          upa {
-            mfaFactors {
-              webauthn {
-                startRegistration {
-                  publicKeyCredentialCreationOptions
+  try {
+    const response = await fetch(apiRoot, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: /* GraphQL */ `
+          mutation startRegistrationWebauthn {
+            upa {
+              mfaFactors {
+                webauthn {
+                  startRegistration {
+                    publicKeyCredentialCreationOptions
+                  }
                 }
               }
             }
           }
-        }
-      `,
-    }),
-  });
-  const result = await response.json();
-  const options =
-    result?.data?.upa?.mfaFactors?.webauthn?.startRegistration?.publicKeyCredentialCreationOptions;
-  if (options) {
-    return { success: true, creationOptionsJson: options };
+        `,
+      }),
+    });
+    const result = await response.json();
+    const options =
+      result?.data?.upa?.mfaFactors?.webauthn?.startRegistration?.publicKeyCredentialCreationOptions;
+    if (options) {
+      return { success: true, creationOptionsJson: options };
+    }
+    return {
+      success: false,
+      error: topLevelError(result) ?? { code: "unexpected_error" },
+      fatalError: false,
+    };
+  } catch {
+    return networkError();
   }
-  return {
-    success: false,
-    error: topLevelError(result) ?? { code: "unexpected_error" },
-    fatalError: false,
-  };
 }

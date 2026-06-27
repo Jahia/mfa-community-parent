@@ -1,4 +1,4 @@
-import { type BaseError, topLevelError } from "./common";
+import { type BaseError, networkError, topLevelError } from "./common";
 
 export interface FinishRegistrationWebauthnResultSuccess {
   success: true;
@@ -15,34 +15,38 @@ export default async function finishRegistrationWebauthn(
   apiRoot: string,
   responseJson: string,
 ): Promise<FinishRegistrationWebauthnResult> {
-  const response = await fetch(apiRoot, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: /* GraphQL */ `
-        mutation finishRegistrationWebauthn($response: String!) {
-          upa {
-            mfaFactors {
-              webauthn {
-                finishRegistration(response: $response) {
-                  registered
+  try {
+    const response = await fetch(apiRoot, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: /* GraphQL */ `
+          mutation finishRegistrationWebauthn($response: String!) {
+            upa {
+              mfaFactors {
+                webauthn {
+                  finishRegistration(response: $response) {
+                    registered
+                  }
                 }
               }
             }
           }
-        }
-      `,
-      variables: { response: responseJson },
-    }),
-  });
-  const result = await response.json();
-  const registered = result?.data?.upa?.mfaFactors?.webauthn?.finishRegistration?.registered;
-  if (registered) {
-    return { success: true };
+        `,
+        variables: { response: responseJson },
+      }),
+    });
+    const result = await response.json();
+    const registered = result?.data?.upa?.mfaFactors?.webauthn?.finishRegistration?.registered;
+    if (registered) {
+      return { success: true };
+    }
+    return {
+      success: false,
+      error: topLevelError(result) ?? { code: "unexpected_error" },
+      fatalError: false,
+    };
+  } catch {
+    return networkError();
   }
-  return {
-    success: false,
-    error: topLevelError(result) ?? { code: "unexpected_error" },
-    fatalError: false,
-  };
 }

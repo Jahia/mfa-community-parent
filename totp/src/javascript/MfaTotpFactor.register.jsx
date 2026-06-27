@@ -14,11 +14,13 @@ const SITE_ADMIN_GUARDS = {
 };
 
 export default function () {
-    console.debug('%c mfa-factors-totp: activation in progress', 'color: #006633');
+    if (process.env.NODE_ENV !== 'production') {
+        console.debug('%c mfa-factors-totp: activation in progress', 'color: #006633');
+    }
 
     // "MFA Community" group in the user dashboard. Children attach through the
     // 'dashboard-mfa-community-dashboard' target. Registered defensively because the totp and
-    // webauthn bundles each may be installed alone — whichever activates first wins.
+    // webauthn bundles each may be installed alone - whichever activates first wins.
     if (!registry.get('adminRoute', 'mfa-community-dashboard')) {
         registry.add('adminRoute', 'mfa-community-dashboard', {
             targets: ['dashboard:99.2'],
@@ -28,7 +30,7 @@ export default function () {
         });
     }
 
-    // MFA Community > Two-factor authentication: enroll / disable / regenerate backup codes.
+    // MFA Community > Authenticator app (TOTP): enroll / disable / regenerate backup codes.
     registry.add('adminRoute', 'mfa-factors-totp', {
         targets: ['dashboard-mfa-community-dashboard:1'],
         icon: <Password/>,
@@ -39,7 +41,7 @@ export default function () {
 
     // "MFA Community" group in site administration. Children attach through the
     // 'administration-sites-mfa-community' target. Registered defensively because the totp and
-    // webauthn bundles each may be installed alone — whichever activates first wins.
+    // webauthn bundles each may be installed alone - whichever activates first wins.
     if (!registry.get('adminRoute', 'mfa-community')) {
         registry.add('adminRoute', 'mfa-community', {
             targets: ['administration-sites:90'],
@@ -62,7 +64,7 @@ export default function () {
         render: () => React.createElement(ExtensionsSettings)
     });
 
-    // MFA Community > Two-factor authentication: per-site TOTP policy (enable/enforce/grace/groups).
+    // MFA Community > Authenticator app (TOTP): per-site TOTP policy (enable/enforce/grace/groups).
     registry.add('adminRoute', 'mfa-factors-totp-site-settings', {
         targets: ['administration-sites-mfa-community:2'],
         icon: <Password/>,

@@ -3,15 +3,15 @@ package org.jahia.modules.upa.mfa.totp.gql;
 import graphql.annotations.annotationTypes.GraphQLDescription;
 import graphql.annotations.annotationTypes.GraphQLField;
 import graphql.annotations.annotationTypes.GraphQLName;
-import org.jahia.modules.upa.mfa.totp.TotpAuditLog;
+import org.jahia.modules.upa.mfa.extensions.MfaAuditEvent;
 
 @GraphQLName("MfaTotpAuditEvent")
 @GraphQLDescription("A single TOTP MFA audit event.")
 public class TotpAuditEventResult {
 
-    private final TotpAuditLog.AuditEvent event;
+    private final MfaAuditEvent event;
 
-    public TotpAuditEventResult(TotpAuditLog.AuditEvent event) {
+    public TotpAuditEventResult(MfaAuditEvent event) {
         this.event = event;
     }
 

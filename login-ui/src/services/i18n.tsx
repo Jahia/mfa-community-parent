@@ -16,3 +16,22 @@ export function convertErrorArgsToInterpolation(error: {
     interpolation: interpolationData,
   };
 }
+
+/** A function with i18next's `t(key, options)` signature (the part this module needs). */
+type TranslateFn = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
+
+/**
+ * Renders a server-supplied MFA error code to a localized message, degrading gracefully (item 14):
+ * an unmapped code falls back to the generic {@code unexpected_error} message instead of leaking
+ * the raw machine string (e.g. "factor.totp.some_new_code") into the UI.
+ */
+export function translateError(
+  t: TranslateFn,
+  error: { code: string; arguments?: Array<{ name: string; value: string }> },
+): string {
+  const { key, interpolation } = convertErrorArgsToInterpolation(error);
+  return t(key, { defaultValue: t("unexpected_error"), ...interpolation });
+}

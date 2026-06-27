@@ -33,6 +33,17 @@ describe('Login redirect round trip (custom login URL)', () => {
     before(() => {
         createSiteWithTotpLoginPage(SITE_KEY);
         installTotpMFAConfig();
+        // installTotpMFAConfig points UPA's OWN loginUrl (org.jahia.modules.upa) at a different
+        // sample site; its login-URL provider would then win over MfaLoginLogoutProvider and serve
+        // a URL without the redirect= param this spec asserts. Clear it so the global
+        // mfa.extensions provider is the sole source for this spec's 401 handling.
+        cy.request({
+            method: 'POST',
+            url: '/modules/api/provisioning',
+            auth: {user: 'root', pass: Cypress.env('SUPER_USER_PASSWORD') as string},
+            headers: {'Content-Type': 'application/json'},
+            body: [{editConfiguration: 'org.jahia.modules.upa', properties: {loginUrl: ''}}],
+        });
         setSiteTotpSettings(SITE_KEY, true);
         setGlobalEnforcement('totp', 0);
         setGlobalMfaUrls(getTotpLoginPageURL(SITE_KEY));

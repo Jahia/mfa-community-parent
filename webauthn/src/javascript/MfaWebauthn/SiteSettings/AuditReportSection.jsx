@@ -35,8 +35,8 @@ const AuditReportSection = ({siteKey}) => {
     return (
         <section data-testid="audit-report-section" data-factor="webauthn">
             <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12}}>
-                <Key/>
-                <Typography variant="heading">
+                <span aria-hidden="true" style={{display: 'inline-flex'}}><Key/></span>
+                <Typography id="webauthn-audit-heading" variant="heading">
                     {t('siteSettings.audit.title')}
                 </Typography>
             </div>
@@ -70,7 +70,10 @@ const AuditReportSection = ({siteKey}) => {
             )}
 
             {events.length > 0 && (
-                <table data-testid="audit-table" style={{borderCollapse: 'collapse', width: '100%'}}>
+                <table data-testid="audit-table" aria-labelledby="webauthn-audit-heading" style={{borderCollapse: 'collapse', width: '100%'}}>
+                    <caption style={{textAlign: 'left', captionSide: 'top', marginBottom: 8, fontWeight: 600}}>
+                        {t('siteSettings.audit.title')}
+                    </caption>
                     <thead>
                         <tr>
                             <th scope="col" style={cell}>{t('siteSettings.audit.colTime')}</th>

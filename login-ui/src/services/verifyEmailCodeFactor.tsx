@@ -1,4 +1,4 @@
-import { type BaseError, type BaseSuccess, createError } from "./common";
+import { type BaseError, type BaseSuccess, createError, networkError } from "./common";
 
 type VerifyEmailFactorResultSuccess = BaseSuccess;
 type VerifyEmailFactorResultError = BaseError;
@@ -8,19 +8,29 @@ export default async function verifyEmailCodeFactor(
   apiRoot: string,
   code: string,
 ): Promise<VerifyEmailFactorResult> {
-  const response = await fetch(apiRoot, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: /* GraphQL */ `
-        mutation verifyEmailCodeFactor($code: String!, $factorType: String!) {
-          upa {
-            mfaFactors {
-              emailCode {
-                verify(code: $code) {
-                  session {
-                    factorState(factorType: $factorType) {
-                      verified
+  try {
+    const response = await fetch(apiRoot, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: /* GraphQL */ `
+          mutation verifyEmailCodeFactor($code: String!, $factorType: String!) {
+            upa {
+              mfaFactors {
+                emailCode {
+                  verify(code: $code) {
+                    session {
+                      factorState(factorType: $factorType) {
+                        verified
+                        error {
+                          code
+                          arguments {
+                            name
+                            value
+                          }
+                        }
+                      }
+                      remainingFactors
                       error {
                         code
                         arguments {
@@ -29,33 +39,26 @@ export default async function verifyEmailCodeFactor(
                         }
                       }
                     }
-                    remainingFactors
-                    error {
-                      code
-                      arguments {
-                        name
-                        value
-                      }
-                    }
                   }
                 }
               }
             }
           }
-        }
-      `,
-      variables: { code, factorType: "email_code" },
-    }),
-  });
-  const result = await response.json();
-  const verification = result?.data?.upa?.mfaFactors?.emailCode?.verify;
-  const success = verification?.session?.factorState?.verified;
-  if (success) {
-    return { success: true, remainingFactors: verification.session.remainingFactors };
-  } else {
+        `,
+        variables: { code, factorType: "email_code" },
+      }),
+    });
+    const result = await response.json();
+    const verification = result?.data?.upa?.mfaFactors?.emailCode?.verify;
+    const success = verification?.session?.factorState?.verified;
+    if (success) {
+      return { success: true, remainingFactors: verification.session.remainingFactors };
+    }
     return createError(
       verification?.session?.error,
       verification?.session?.factorState?.error,
     );
+  } catch {
+    return networkError();
   }
 }

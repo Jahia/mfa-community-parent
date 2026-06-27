@@ -34,7 +34,7 @@
     "webpack": "5.94.0"
   },
   "scripts": {
-    "e2e:ci": "cypress run",
+    "e2e:ci": "cypress run --browser chrome",
     "e2e:debug": "cypress open",
     "report:merge": "mochawesome-merge results/reports/cypress*.json > results/reports/report.json && rm results/reports/cypress*.json",
     "report:html": "marge --inline results/reports/report.json --reportDir results/reports/"

@@ -4,10 +4,11 @@ import classes from "./component.module.css";
 import { useApiRoot } from "../../hooks/ApiRootContext";
 import ErrorMessage from "./ErrorMessage.client";
 import type { Props } from "./types";
-import { convertErrorArgsToInterpolation } from "../../services/i18n";
+import { translateError } from "../../services/i18n";
 import type { MfaError } from "../../services/common";
 import { Trans, useTranslation } from "react-i18next";
 import { submitOnEnter } from "./formKeyboard";
+import { sanitizeHtml } from "../../services/sanitizeHtml";
 
 function extractSiteKeyFromUrl(): string | undefined {
   const url = globalThis.location.pathname;
@@ -54,8 +55,7 @@ export default function LoginForm(props: Readonly<LoginFormProps>) {
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
-          const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-          setError(t(key, interpolation));
+          setError(translateError(t, result.error));
         }
       })
       .finally(() => setInProgress(false));
@@ -101,7 +101,7 @@ export default function LoginForm(props: Readonly<LoginFormProps>) {
           <div
             data-testid="below-password-field"
             className={classes.belowPasswordField}
-            dangerouslySetInnerHTML={{ __html: props.content.loginBelowPasswordFieldHtml }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(props.content.loginBelowPasswordFieldHtml) }}
           />
         )}
         <ErrorMessage message={error} />
@@ -119,7 +119,7 @@ export default function LoginForm(props: Readonly<LoginFormProps>) {
         <div
           data-testid="additional-action"
           className={classes.additionalAction}
-          dangerouslySetInnerHTML={{ __html: props.content.loginAdditionalActionHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(props.content.loginAdditionalActionHtml) }}
         />
       )}
     </>

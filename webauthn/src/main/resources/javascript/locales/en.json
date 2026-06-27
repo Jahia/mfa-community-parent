@@ -29,11 +29,13 @@
   "errors": {
     "unsupported": "This browser does not support WebAuthn. Try a recent version of Chrome, Edge, Firefox or Safari.",
     "cancelled": "Registration was cancelled or timed out. Please try again.",
-    "failed": "Could not register the authenticator. Please try again."
+    "failed": "Could not register the authenticator. Please try again.",
+    "notFound": "That authenticator could not be found. The list may be out of date - refresh and try again.",
+    "generic": "Something went wrong. Please try again."
   },
   "siteSettings": {
-    "menuLabel": "Security and passkeys",
-    "title": "WebAuthn — {{siteKey}}",
+    "menuLabel": "Security keys & passkeys",
+    "title": "Security keys & passkeys (WebAuthn) - {{siteKey}}",
     "description": "Choose whether WebAuthn is active on this site and which groups it applies to. Whether registration is REQUIRED is a platform-wide setting (enforcedFactors in the org.jahia.modules.mfa.extensions configuration).",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
@@ -72,6 +74,7 @@
     "errors": {
       "permissionDenied": "You don't have permission to change these settings.",
       "notAuthenticated": "Please sign in again to change these settings.",
+      "invalidUrl": "The login/logout URL must be a relative path starting with / (e.g. /sites/mySite/login.html). Absolute or external URLs are not allowed.",
       "generic": "Could not save the settings. Please try again."
     }
   },
@@ -80,6 +83,6 @@
   },
   "auditReporting": {
     "menuLabel": "Audit & reporting",
-    "title": "Audit & reporting — {{siteKey}}"
+    "title": "Audit & reporting - {{siteKey}}"
   }
 }

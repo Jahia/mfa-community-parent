@@ -37,6 +37,19 @@ export function topLevelError(result: any): MfaError | null {
 }
 
 /**
+ * A network/transport failure (fetch rejected, or the response was not valid JSON). Returned by
+ * every service so a dropped connection becomes a typed, non-fatal error the form can render and
+ * recover from, instead of an unhandled promise rejection that hangs the UI silently.
+ */
+export function networkError(): BaseError {
+  return {
+    success: false,
+    error: { code: "network_error" },
+    fatalError: false,
+  };
+}
+
+/**
  * Creates an error response based on provided session and factor errors.
  * If neither session nor factor errors are provided, an "unexpected_error" error is returned
  * with a fatal flag set to true.

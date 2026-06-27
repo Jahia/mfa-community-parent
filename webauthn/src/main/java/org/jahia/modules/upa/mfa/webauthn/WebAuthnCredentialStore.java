@@ -64,7 +64,7 @@ public class WebAuthnCredentialStore implements CredentialRepository {
         this.userManagerService = userManagerService;
     }
 
-    /** Immutable view of a stored credential for the dashboard listing. */
+    /** Immutable view of a stored credential for the dashboard listing. Built via {@link Builder} (Sonar S107). */
     public static final class StoredCredential {
         private final String credentialId;
         private final String nickname;
@@ -74,16 +74,15 @@ public class WebAuthnCredentialStore implements CredentialRepository {
         private final List<String> transports;
         private final String aaguid;
 
-        public StoredCredential(String credentialId, String nickname, long signCount, long createdAt,
-                                long lastUsedAt, List<String> transports, String aaguid) {
-            this.credentialId = credentialId;
-            this.nickname = nickname;
-            this.signCount = signCount;
-            this.createdAt = createdAt;
-            this.lastUsedAt = lastUsedAt;
-            this.transports = transports == null ? Collections.emptyList()
-                    : Collections.unmodifiableList(new ArrayList<>(transports));
-            this.aaguid = aaguid;
+        private StoredCredential(Builder b) {
+            this.credentialId = b.credentialId;
+            this.nickname = b.nickname;
+            this.signCount = b.signCount;
+            this.createdAt = b.createdAt;
+            this.lastUsedAt = b.lastUsedAt;
+            this.transports = b.transports == null ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(b.transports));
+            this.aaguid = b.aaguid;
         }
 
         public String getCredentialId() { return credentialId; }
@@ -93,6 +92,37 @@ public class WebAuthnCredentialStore implements CredentialRepository {
         public long getLastUsedAt()     { return lastUsedAt; }
         public List<String> getTransports() { return transports; }
         public String getAaguid()       { return aaguid; }
+
+        public static Builder builder() {
+            return new Builder();
+        }
+
+        /** Fluent builder for {@link StoredCredential}. */
+        public static final class Builder {
+            private String credentialId;
+            private String nickname;
+            private long signCount;
+            private long createdAt;
+            private long lastUsedAt;
+            private List<String> transports;
+            private String aaguid;
+
+            private Builder() {
+                // use StoredCredential.builder()
+            }
+
+            public Builder credentialId(String v) { this.credentialId = v; return this; }
+            public Builder nickname(String v)      { this.nickname = v; return this; }
+            public Builder signCount(long v)       { this.signCount = v; return this; }
+            public Builder createdAt(long v)       { this.createdAt = v; return this; }
+            public Builder lastUsedAt(long v)      { this.lastUsedAt = v; return this; }
+            public Builder transports(List<String> v) { this.transports = v; return this; }
+            public Builder aaguid(String v)        { this.aaguid = v; return this; }
+
+            public StoredCredential build() {
+                return new StoredCredential(this);
+            }
+        }
     }
 
     /** Whether the user has at least one registered credential. */
@@ -129,18 +159,22 @@ public class WebAuthnCredentialStore implements CredentialRepository {
                 if (!n.isNodeType(NT_CREDENTIAL)) {
                     continue;
                 }
-                out.add(new StoredCredential(
-                        strProp(n, PROP_CREDENTIAL_ID), strProp(n, PROP_NICKNAME),
-                        longProp(n, PROP_SIGN_COUNT), createdAt(n), longProp(n, PROP_LAST_USED_AT),
-                        multiProp(n, PROP_TRANSPORTS), strProp(n, PROP_AAGUID)));
+                out.add(StoredCredential.builder()
+                        .credentialId(strProp(n, PROP_CREDENTIAL_ID))
+                        .nickname(strProp(n, PROP_NICKNAME))
+                        .signCount(longProp(n, PROP_SIGN_COUNT))
+                        .createdAt(createdAt(n))
+                        .lastUsedAt(longProp(n, PROP_LAST_USED_AT))
+                        .transports(multiProp(n, PROP_TRANSPORTS))
+                        .aaguid(strProp(n, PROP_AAGUID))
+                        .build());
             }
             out.sort((a, b) -> Long.compare(b.getCreatedAt(), a.getCreatedAt()));
             return out;
         });
     }
 
-    /** Data for a freshly-registered credential to persist (groups the fields so the store API
-     *  stays within the parameter-count limit). */
+    /** Data for a freshly-registered credential to persist. Built via {@link Builder} (Sonar S107). */
     public static final class NewCredential {
         private final String credentialIdB64;
         private final String publicKeyCoseB64;
@@ -150,15 +184,53 @@ public class WebAuthnCredentialStore implements CredentialRepository {
         private final String aaguid;
         private final String nickname;
 
-        public NewCredential(String credentialIdB64, String publicKeyCoseB64, long signCount,
-                             String userHandleB64, List<String> transports, String aaguid, String nickname) {
-            this.credentialIdB64 = credentialIdB64;
-            this.publicKeyCoseB64 = publicKeyCoseB64;
-            this.signCount = signCount;
-            this.userHandleB64 = userHandleB64;
-            this.transports = transports;
-            this.aaguid = aaguid;
-            this.nickname = nickname;
+        private NewCredential(Builder b) {
+            this.credentialIdB64 = b.credentialIdB64;
+            this.publicKeyCoseB64 = b.publicKeyCoseB64;
+            this.signCount = b.signCount;
+            this.userHandleB64 = b.userHandleB64;
+            this.transports = b.transports;
+            this.aaguid = b.aaguid;
+            this.nickname = b.nickname;
+        }
+
+        public String getCredentialIdB64()  { return credentialIdB64; }
+        public String getPublicKeyCoseB64() { return publicKeyCoseB64; }
+        public long getSignCount()          { return signCount; }
+        public String getUserHandleB64()    { return userHandleB64; }
+        public List<String> getTransports() { return transports; }
+        public String getAaguid()           { return aaguid; }
+        public String getNickname()         { return nickname; }
+
+        public static Builder builder() {
+            return new Builder();
+        }
+
+        /** Fluent builder for {@link NewCredential}. */
+        public static final class Builder {
+            private String credentialIdB64;
+            private String publicKeyCoseB64;
+            private long signCount;
+            private String userHandleB64;
+            private List<String> transports;
+            private String aaguid;
+            private String nickname;
+
+            private Builder() {
+                // use NewCredential.builder()
+            }
+
+            public Builder credentialIdB64(String v)  { this.credentialIdB64 = v; return this; }
+            public Builder publicKeyCoseB64(String v) { this.publicKeyCoseB64 = v; return this; }
+            public Builder signCount(long v)          { this.signCount = v; return this; }
+            public Builder userHandleB64(String v)    { this.userHandleB64 = v; return this; }
+            public Builder transports(List<String> v) { this.transports = v; return this; }
+            public Builder aaguid(String v)           { this.aaguid = v; return this; }
+            public Builder nickname(String v)         { this.nickname = v; return this; }
+
+            public NewCredential build() {
+                return new NewCredential(this);
+            }
         }
     }
 
@@ -173,19 +245,19 @@ public class WebAuthnCredentialStore implements CredentialRepository {
                 user.addMixin(MIXIN_USER_SETTINGS);
             }
             Node cred = user.addNode("c-" + java.util.UUID.randomUUID(), NT_CREDENTIAL);
-            cred.setProperty(PROP_CREDENTIAL_ID, c.credentialIdB64);
-            cred.setProperty(PROP_PUBLIC_KEY_COSE, c.publicKeyCoseB64);
-            cred.setProperty(PROP_SIGN_COUNT, c.signCount);
-            if (c.userHandleB64 != null) {
-                cred.setProperty(PROP_USER_HANDLE, c.userHandleB64);
+            cred.setProperty(PROP_CREDENTIAL_ID, c.getCredentialIdB64());
+            cred.setProperty(PROP_PUBLIC_KEY_COSE, c.getPublicKeyCoseB64());
+            cred.setProperty(PROP_SIGN_COUNT, c.getSignCount());
+            if (c.getUserHandleB64() != null) {
+                cred.setProperty(PROP_USER_HANDLE, c.getUserHandleB64());
             }
-            if (c.transports != null && !c.transports.isEmpty()) {
-                cred.setProperty(PROP_TRANSPORTS, c.transports.toArray(new String[0]));
+            if (c.getTransports() != null && !c.getTransports().isEmpty()) {
+                cred.setProperty(PROP_TRANSPORTS, c.getTransports().toArray(new String[0]));
             }
-            if (c.aaguid != null) {
-                cred.setProperty(PROP_AAGUID, c.aaguid);
+            if (c.getAaguid() != null) {
+                cred.setProperty(PROP_AAGUID, c.getAaguid());
             }
-            cred.setProperty(PROP_NICKNAME, StringUtils.defaultIfBlank(c.nickname, "Passkey"));
+            cred.setProperty(PROP_NICKNAME, StringUtils.defaultIfBlank(c.getNickname(), "Passkey"));
             cred.setProperty(PROP_LAST_USED_AT, 0L);
             session.save();
             logger.info("WebAuthn credential registered for user {}", user.getName());
@@ -209,14 +281,35 @@ public class WebAuthnCredentialStore implements CredentialRepository {
             Node cred = findCredentialNode(userManagerService.lookupUser(userId, session), credentialIdB64);
             if (cred != null) {
                 long current = cred.hasProperty(PROP_SIGN_COUNT) ? cred.getProperty(PROP_SIGN_COUNT).getLong() : 0L;
-                if (newSignCount > current) {
-                    cred.setProperty(PROP_SIGN_COUNT, newSignCount);
+                long next = nextSignCount(current, newSignCount);
+                if (next != current) {
+                    cred.setProperty(PROP_SIGN_COUNT, next);
                 }
                 cred.setProperty(PROP_LAST_USED_AT, System.currentTimeMillis());
                 session.save();
             }
             return null;
         });
+    }
+
+    /**
+     * Pure decision for the persisted sign counter: keep {@code current} when the authenticator's
+     * {@code observed} value does not advance past it (a regress would mean a cloned authenticator;
+     * {@code observed == 0} means the authenticator keeps no counter), otherwise adopt
+     * {@code observed}. Extracted so the monotonic-advance rule is unit-testable.
+     */
+    static long nextSignCount(long current, long observed) {
+        return observed > current ? observed : current;
+    }
+
+    /**
+     * Whether the user owns a credential with the given (base64url) id. Used by the login provider
+     * as a defense-in-depth post-condition after an assertion, so user binding does not rest solely
+     * on the yubico library.
+     */
+    public boolean isCredentialOwnedBy(String userId, String credentialIdB64) throws RepositoryException {
+        return Boolean.TRUE.equals(JCRTemplate.getInstance().doExecuteWithSystemSession(session ->
+                findCredentialNode(userManagerService.lookupUser(userId, session), credentialIdB64) != null));
     }
 
     /** Rename a credential (user-facing label). Returns true if it existed. */

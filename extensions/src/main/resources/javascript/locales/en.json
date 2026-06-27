@@ -1,7 +1,7 @@
 {
   "settings": {
     "menuLabel": "MFA Community",
-    "title": "MFA Community — global configuration",
+    "title": "MFA Community - global configuration",
     "description": "Platform-wide MFA settings. Changes apply immediately (the Karaf configuration org.jahia.modules.mfa.extensions is updated and the components hot-reload).",
     "save": "Save",
     "saving": "Saving…",
@@ -23,14 +23,14 @@
     },
     "gate": {
       "title": "/cms/login gate",
-      "help": "Jahia's legacy /cms/login endpoint authenticates with username/password only and never consults MFA factors — while enforcement is active it is a second-factor bypass. The gate rejects it with 403 when an enforced factor is enabled on the request's site.",
+      "help": "Jahia's legacy /cms/login endpoint authenticates with username/password only and never consults MFA factors - while enforcement is active it is a second-factor bypass. The gate rejects it with 403 when an enforced factor is enabled on the request's site.",
       "enabled": {
         "label": "Enable the /cms/login gate",
         "help": "Set the IP whitelist FIRST: enabling the gate with an empty whitelist locks everyone (including platform administrators) out of /cms/login as soon as enforcement applies."
       },
       "whitelist": {
         "label": "IP whitelist",
-        "help": "Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate. The client IP is the first X-Forwarded-For entry when present — only enable the gate behind a reverse proxy that overwrites that header."
+        "help": "Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate. The client IP is the first X-Forwarded-For entry when present - only enable the gate behind a reverse proxy that overwrites that header."
       }
     },
     "urls": {
@@ -48,7 +48,7 @@
     "errors": {
       "unknownFactor": "One of the enforced factors is not an installed factor type.",
       "invalidGraceDays": "The grace period must be between 0 and 365 days.",
-      "invalidWhitelist": "The IP whitelist contains an invalid entry — use IPv4/IPv6 addresses or CIDR blocks.",
+      "invalidWhitelist": "The IP whitelist contains an invalid entry - use IPv4/IPv6 addresses or CIDR blocks.",
       "permissionDenied": "You do not have permission to change this configuration.",
       "generic": "The configuration could not be saved. Please check the server logs."
     }

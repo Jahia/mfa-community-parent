@@ -8,6 +8,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Optional;
@@ -67,13 +68,16 @@ public class TotpService {
      * @return zero-padded 6-digit code
      */
     public String generateCode(byte[] secret, long counter) {
+        if (secret == null) {
+            throw new IllegalStateException("Cannot generate a TOTP code without a secret");
+        }
         byte[] counterBytes = ByteBuffer.allocate(8).putLong(counter).array();
         byte[] hash;
         try {
             Mac mac = Mac.getInstance("HmacSHA1");
             mac.init(new SecretKeySpec(secret, "HmacSHA1"));
             hash = mac.doFinal(counterBytes);
-        } catch (Exception e) {
+        } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC-SHA1 is required but not available", e);
         }
         int offset = hash[hash.length - 1] & 0x0F;
