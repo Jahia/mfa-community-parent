@@ -11,7 +11,7 @@
  *
  * Routes render at /jahia/administration/<siteKey>/<routeKey>.
  */
-import {createSite, deleteSite} from '@jahia/cypress';
+import {createSite, deleteSite, enableModule} from '@jahia/cypress';
 
 const SITE_KEY = 'sample-mfa-admin';
 const ADMIN = `/jahia/administration/${SITE_KEY}`;
@@ -25,6 +25,11 @@ describe('MFA Community site administration navigation', () => {
             templateSet: 'user-password-authentication-template-set-test-module',
             serverName: 'localhost'
         });
+        // The MFA Community menu is now site-scoped (requireModuleInstalledOnSite). Enable both
+        // factors on this site so the group + Extensions + Audit + per-factor pages all appear
+        // (mfa-factors-extensions is pulled in as their dependency).
+        enableModule('mfa-factors-totp', SITE_KEY);
+        enableModule('mfa-factors-webauthn', SITE_KEY);
     });
 
     after(() => {

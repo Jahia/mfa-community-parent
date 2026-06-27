@@ -22,7 +22,7 @@
 
     <properties>
         <jahia-depends>user-password-authentication-api,graphql-dxm-provider,mfa-factors-extensions</jahia-depends>
-        <jahia-module-type>system</jahia-module-type>
+        <jahia-module-type>module</jahia-module-type>
         <upa.version>0.3.0-SNAPSHOT</upa.version>
         <webauthn.version>2.9.0</webauthn.version>
         <maven.compiler.source>11</maven.compiler.source>

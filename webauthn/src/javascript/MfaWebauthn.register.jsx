@@ -6,10 +6,18 @@ import SiteSettings from './MfaWebauthn/SiteSettings/SiteSettings';
 import AuditReporting from './MfaWebauthn/AuditReporting/AuditReporting';
 import AuditReportSection from './MfaWebauthn/SiteSettings/AuditReportSection';
 
-// Common guards for every per-site administration entry: site admins only, never on systemsite.
+// Common guards for every per-site administration entry: site admins only, never on systemsite,
+// and ONLY on sites where the MFA modules are actually installed. The shared group/Audit entries
+// gate on mfa-factors-extensions - the factors jahia-depend on it, so it is present on a site
+// exactly when at least one factor (TOTP or WebAuthn) is enabled there. The per-factor settings
+// entry overrides this with its own factor module (see below).
 const SITE_ADMIN_GUARDS = {
     requiredSitePermission: 'siteAdminAccess',
-    isEnabled: siteKey => siteKey !== 'systemsite'
+    isEnabled: siteKey => siteKey !== 'systemsite',
+    // jcontent expects a STRING and checks site.installedModulesWithAllDependencies.indexOf(value);
+    // an array never matches. The dependency set is included, so gating the shared entries on the
+    // extensions module shows them whenever any factor is enabled on the site.
+    requireModuleInstalledOnSite: 'mfa-factors-extensions'
 };
 
 export default function () {
@@ -58,6 +66,8 @@ export default function () {
         label: 'mfa-factors-webauthn:siteSettings.menuLabel',
         isSelectable: true,
         ...SITE_ADMIN_GUARDS,
+        // This page is WebAuthn-specific: show it only where the WebAuthn factor itself is enabled.
+        requireModuleInstalledOnSite: 'mfa-factors-webauthn',
         render: () => React.createElement(SiteSettings)
     });
 
