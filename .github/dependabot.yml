@@ -1,11 +1,24 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
+# Dependabot version updates for the MFA community reactor.
+# - maven: the OSGi/Java multi-module reactor (root pom drives extensions, totp, webauthn, login-ui).
+# - npm:   the JS modules (each ships its own package.json: the three factor webapp bundles and the
+#          login-ui JS-SDK module) plus the Cypress test harness. The "npm" ecosystem also covers
+#          the yarn lockfiles these modules use.
+# See https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 version: 2
 updates:
-  - package-ecosystem: "" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "maven"
+    directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "npm"
+    directories:
+      - "/extensions"
+      - "/totp"
+      - "/webauthn"
+      - "/login-ui"
+      - "/tests"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
