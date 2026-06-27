@@ -141,8 +141,11 @@ const SiteSettings = () => {
     );
 };
 
+// Disabled fields are greyed via the control (cursor + #767676 label) rather than a wrapper
+// opacity, so the help text keeps its #555 colour (7.46:1 on white) and the label stays at
+// #767676 (4.54:1) - both above the WCAG AA/AAA threshold even when disabled.
 const CheckboxField = ({id, testid, checked, disabled, label, help, onChange}) => (
-    <div style={{marginBottom: 24, display: 'flex', alignItems: 'flex-start', gap: 12, opacity: disabled ? 0.5 : 1}}>
+    <div style={{marginBottom: 24, display: 'flex', alignItems: 'flex-start', gap: 12}}>
         <input id={id}
                type="checkbox"
                checked={checked}
@@ -152,7 +155,7 @@ const CheckboxField = ({id, testid, checked, disabled, label, help, onChange}) =
                style={{marginTop: 4, cursor: disabled ? 'not-allowed' : 'pointer'}}
                onChange={e => onChange(e.target.checked)}/>
         <div>
-            <label htmlFor={id} style={{fontWeight: 600, display: 'block', cursor: disabled ? 'not-allowed' : 'pointer'}}>
+            <label htmlFor={id} style={{fontWeight: 600, display: 'block', color: disabled ? '#767676' : 'inherit', cursor: disabled ? 'not-allowed' : 'pointer'}}>
                 {label}
             </label>
             <Typography id={`${id}-help`} variant="caption" style={{display: 'block', color: '#555'}}>{help}</Typography>
@@ -161,8 +164,8 @@ const CheckboxField = ({id, testid, checked, disabled, label, help, onChange}) =
 );
 
 const TextField = ({id, testid, type, value, disabled, placeholder, label, help, min, max, onChange}) => (
-    <div style={{marginBottom: 24, opacity: disabled ? 0.5 : 1}}>
-        <label htmlFor={id} style={{fontWeight: 600, display: 'block', marginBottom: 4}}>{label}</label>
+    <div style={{marginBottom: 24}}>
+        <label htmlFor={id} style={{fontWeight: 600, display: 'block', marginBottom: 4, color: disabled ? '#767676' : 'inherit'}}>{label}</label>
         <input id={id}
                type={type}
                value={value}
@@ -173,7 +176,8 @@ const TextField = ({id, testid, type, value, disabled, placeholder, label, help,
                data-testid={testid}
                aria-describedby={`${id}-help`}
                style={{padding: '0.4rem', minWidth: 280, minHeight: 44, boxSizing: 'border-box',
-                       borderRadius: 4, border: '1px solid #767676'}}
+                       borderRadius: 4, border: '1px solid #767676',
+                       cursor: disabled ? 'not-allowed' : 'auto'}}
                onChange={e => onChange(e.target.value)}/>
         <Typography id={`${id}-help`} variant="caption" style={{display: 'block', color: '#555', marginTop: 4}}>{help}</Typography>
     </div>

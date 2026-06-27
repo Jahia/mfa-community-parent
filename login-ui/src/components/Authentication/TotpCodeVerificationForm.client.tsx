@@ -131,7 +131,11 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
   return (
     <div className={classes.otpFormWrapper}>
       <h2>
-        <Trans i18nKey={props.content.totpCodeVerificationFieldLabel} />
+        {useBackupCode ? (
+          <Trans i18nKey="factor.totp.backupCodeHeading" />
+        ) : (
+          <Trans i18nKey={props.content.totpCodeVerificationFieldLabel} />
+        )}
       </h2>
 
       {!useBackupCode && props.content.totpCodeVerificationHelpHtml && (
@@ -159,13 +163,14 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
             value={code}
             onChange={handleCodeInputChange}
             onKeyDown={submitOnEnter(submit)}
-            aria-label="Enter authenticator code"
+            aria-label={t("factor.totp.codeInputLabel")}
+            aria-describedby="verificationCode-error"
             data-testid={useBackupCode ? "verification-backup-code" : "verification-code"}
             className={useBackupCode ? classes.backupCodeInput : classes.otpInput}
             required
           />
         </div>
-        <ErrorMessage message={error} />
+        <ErrorMessage message={error} id="verificationCode-error" />
         <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
           <button
             type="submit"

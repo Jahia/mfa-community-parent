@@ -141,8 +141,8 @@ public class MfaEnforcementDecider {
      * per-site activation/scoping rows). Called by the provider after it has determined that the
      * factor is globally enforced and there is no resolvable site.
      */
-    public Serializable prepareForGlobalOnly(PreparationContext preparationContext, String userId,
-                                             FactorEnforcementCallbacks callbacks) throws MfaException {
+    private Serializable prepareForGlobalOnly(PreparationContext preparationContext, String userId,
+                                              FactorEnforcementCallbacks callbacks) throws MfaException {
         final String factorType = callbacks.factorType();
         if (anotherEnforcedFactorVerified(preparationContext, factorType)) {
             logger.debug("{} skipped for user {} (another enforced factor already verified)",
@@ -166,8 +166,8 @@ public class MfaEnforcementDecider {
      * The site-scoped decision once the site has the factor enabled and the user is in scope.
      * Enforcement is GLOBAL; a user must satisfy it with AT LEAST ONE of the enforced factors.
      */
-    public Serializable prepareForSite(PreparationContext preparationContext, String userId, String siteKey,
-                                       FactorEnforcementCallbacks callbacks) throws MfaException {
+    private Serializable prepareForSite(PreparationContext preparationContext, String userId, String siteKey,
+                                        FactorEnforcementCallbacks callbacks) throws MfaException {
         final String factorType = callbacks.factorType();
         boolean configured = callbacks.isConfiguredForUser(userId);
         if (!globalPolicy.isEnforced(factorType)) {

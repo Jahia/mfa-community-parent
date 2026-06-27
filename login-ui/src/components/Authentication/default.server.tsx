@@ -49,6 +49,9 @@ jahiaComponent(
           />
         </header>
         <main className={classes.main}>
+          {/* Top-level page heading for assistive tech (WCAG 2.4.10): the per-step components
+              render h2s, so the page needs an h1. Kept visually hidden to preserve the layout. */}
+          <h1 className={classes.srOnly}>{logoAlt}</h1>
           <Island
             component={Authentication}
             props={{

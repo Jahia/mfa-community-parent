@@ -35,6 +35,7 @@
     "title": "Your backup codes",
     "warning": "Save these codes somewhere safe. Each can be used only once and they will not be shown again.",
     "copy": "Copy",
+    "copied": "Backup codes copied to clipboard.",
     "download": "Download",
     "close": "I have saved them"
   },

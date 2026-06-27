@@ -136,13 +136,16 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
   if (phase === "backupCodes") {
     return (
       <div className={classes.otpFormWrapper}>
-        <h2 ref={backupHeadingRef} tabIndex={-1}>
+        <h2 id="enroll-backup-codes-heading" ref={backupHeadingRef} tabIndex={-1}>
           <Trans i18nKey="enroll.totp.backupTitle" />
         </h2>
         <p className={classes.helpText} role="alert">
           <Trans i18nKey="enroll.totp.backupWarning" />
         </p>
         <pre
+          id="enroll-backup-codes-region"
+          role="region"
+          aria-labelledby="enroll-backup-codes-heading"
           data-testid="enroll-backup-codes"
           style={{ textAlign: "center", lineHeight: 1.7, userSelect: "all" }}
         >
@@ -229,12 +232,13 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
             onChange={handleCodeInputChange}
             onKeyDown={submitOnEnter(submit)}
             aria-label={t("enroll.totp.codeLabel")}
+            aria-describedby="enrollCode-error"
             data-testid="enroll-code-input"
             className={classes.otpInput}
             required
           />
         </div>
-        <ErrorMessage message={error} />
+        <ErrorMessage message={error} id="enrollCode-error" />
         <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
           <button
             type="submit"

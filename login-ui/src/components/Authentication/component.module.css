@@ -176,3 +176,17 @@
 .main a {
   color: #00538b;
 }
+
+/* Visually hidden but exposed to assistive tech (WCAG 2.4.10 / 1.3.1): keeps the page's
+   top-level heading in the accessibility tree without changing the visual layout. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -134,13 +134,14 @@ export default function EmailCodeVerificationForm(
             value={code}
             onChange={handleCodeChange}
             onKeyDown={submitOnEnter(submit)}
-            aria-label="Enter email verification code"
+            aria-label={t("factor.email_code.codeInputLabel")}
+            aria-describedby="emailCode-error"
             data-testid="email-verification-code"
             className={classes.otpInput}
             required
           />
         </div>
-        <ErrorMessage message={error} />
+        <ErrorMessage message={error} id="emailCode-error" />
         {/* Confirmation after a successful resend, announced to assistive tech (item 12). */}
         <div role="status" aria-live="polite" className={classes.helpText} data-testid="email-resent">
           {resentConfirmation}

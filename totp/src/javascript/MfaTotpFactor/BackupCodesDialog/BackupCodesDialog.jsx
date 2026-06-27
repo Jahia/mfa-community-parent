@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import PropTypes from 'prop-types';
 import {useTranslation} from 'react-i18next';
 import {Button, Typography, Modal, ModalHeader, ModalBody, ModalFooter} from '@jahia/moonstone';
@@ -6,8 +6,18 @@ import copy from 'copy-to-clipboard';
 
 const BackupCodesDialog = ({isOpen, codes, onClose}) => {
     const {t} = useTranslation('mfa-factors-totp');
+    const [copyConfirmed, setCopyConfirmed] = useState(false);
 
-    const copyAll = () => copy(codes.join('\n'));
+    const handleClose = () => {
+        setCopyConfirmed(false);
+        onClose();
+    };
+
+    const copyAll = () => {
+        const ok = copy(codes.join('\n'));
+        setCopyConfirmed(ok !== false);
+    };
+
     const download = () => {
         const blob = new Blob([codes.join('\n') + '\n'], {type: 'text/plain'});
         const url = URL.createObjectURL(blob);
@@ -27,7 +37,7 @@ const BackupCodesDialog = ({isOpen, codes, onClose}) => {
                size="small"
                onOpenChange={open => {
  if (!open) {
- onClose();
+ handleClose();
 }
 }}
         >
@@ -48,6 +58,13 @@ const BackupCodesDialog = ({isOpen, codes, onClose}) => {
                     >
                         {codes.join('\n')}
                     </pre>
+                    <Typography role="status"
+                                aria-live="polite"
+                                data-testid="backup-codes-copy-status"
+                                style={{display: 'block', marginTop: 12, color: '#006600', minHeight: '1.2em'}}
+                    >
+                        {copyConfirmed ? t('backupCodesDialog.copied') : ''}
+                    </Typography>
                 </ModalBody>
                 <ModalFooter>
                     <Button label={t('backupCodesDialog.copy')} onClick={copyAll}/>
@@ -55,7 +72,7 @@ const BackupCodesDialog = ({isOpen, codes, onClose}) => {
                     <Button color="accent"
                             data-testid="backup-codes-close-btn"
                             label={t('backupCodesDialog.close')}
-                            onClick={onClose}/>
+                            onClick={handleClose}/>
                 </ModalFooter>
             </div>
         </Modal>
