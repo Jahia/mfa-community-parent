@@ -58,6 +58,8 @@
   flex-direction: row;
   justify-content: center;
   gap: 0.5rem;
+  /* Separate the boxes from the instruction text directly above them. */
+  margin-top: 1rem;
 }
 
 .otpDigit {
