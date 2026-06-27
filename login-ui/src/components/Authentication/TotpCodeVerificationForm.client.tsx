@@ -4,16 +4,20 @@ import { prepareTotpFactor, verifyTotpFactor } from "../../services";
 import classes from "./component.module.css";
 import ErrorMessage from "./ErrorMessage.client";
 import type { Props } from "./types";
-import { convertErrorArgsToInterpolation } from "../../services/i18n";
+import { translateError } from "../../services/i18n";
 import { Trans, useTranslation } from "react-i18next";
 import type { MfaError } from "../../services/common";
 import { submitOnEnter } from "./formKeyboard";
+import { sanitizeHtml } from "../../services/sanitizeHtml";
+import ChangeMethodButton from "./ChangeMethodButton.client";
 
 interface TotpCodeVerificationFormProps {
   content: Props;
   onSuccess: (remainingFactors: string[]) => void;
   onEnrollmentRequired: (error: MfaError) => void;
   onFatalError: (error: MfaError) => void;
+  /** When set, render a "Use a different method" control returning to the factor chooser. */
+  onChangeMethod?: () => void;
 }
 
 const TOTP_CODE_LENGTH = 6;
@@ -52,8 +56,7 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
-          const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-          setError(t(key, interpolation));
+          setError(translateError(t, result.error));
         }
         return undefined;
       })
@@ -63,17 +66,23 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
   };
 
   useEffect(() => {
-    inputRef.current?.focus();
     prepareFactor();
     // Intentionally run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Focus the input once the form is interactive and whenever the user toggles between TOTP and
+  // backup mode (item 4: replaces the setTimeout(..., 0) focus hack with a commit-time effect).
+  useEffect(() => {
+    if (!loading) {
+      inputRef.current?.focus();
+    }
+  }, [loading, useBackupCode]);
+
   useEffect(() => {
     // Reset the code whenever the user toggles between TOTP and backup mode.
     setCode("");
     setError("");
-    setTimeout(() => inputRef.current?.focus(), 0);
   }, [useBackupCode]);
 
   if (loading) {
@@ -108,8 +117,7 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
-          const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-          setError(t(key, interpolation));
+          setError(translateError(t, result.error));
         }
       })
       .finally(() => setSubmitting(false));
@@ -129,7 +137,9 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
       {!useBackupCode && props.content.totpCodeVerificationHelpHtml && (
         <div
           className={classes.helpText}
-          dangerouslySetInnerHTML={{ __html: props.content.totpCodeVerificationHelpHtml }}
+          dangerouslySetInnerHTML={{
+            __html: sanitizeHtml(props.content.totpCodeVerificationHelpHtml),
+          }}
         />
       )}
 
@@ -183,9 +193,18 @@ export default function TotpCodeVerificationForm(props: Readonly<TotpCodeVerific
             <div
               style={{ marginTop: "0.5rem" }}
               dangerouslySetInnerHTML={{
-                __html: props.content.totpCodeVerificationBackupCodeHintHtml,
+                __html: sanitizeHtml(props.content.totpCodeVerificationBackupCodeHintHtml),
               }}
             />
+          )}
+          {props.onChangeMethod && (
+            <div style={{ marginTop: "0.5rem" }}>
+              <ChangeMethodButton
+                onClick={props.onChangeMethod}
+                labelKey="chooser.useDifferentMethod"
+                testId="change-method"
+              />
+            </div>
           )}
         </div>
       </form>

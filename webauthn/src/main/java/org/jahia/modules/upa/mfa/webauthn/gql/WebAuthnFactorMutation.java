@@ -15,16 +15,16 @@ import org.jahia.modules.upa.mfa.MfaSession;
 import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
 import org.jahia.modules.upa.mfa.extensions.MfaForeignFactorDrain;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
+import org.jahia.modules.upa.mfa.extensions.MfaGraphqlAuth;
+import org.jahia.modules.upa.mfa.extensions.MfaPreAuthGuard;
 import org.jahia.modules.upa.mfa.gql.Result;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnAuditLog;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnCredentialStore;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnManagementRateLimiter;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnService;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnSiteSettingsStore;
-import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.usermanager.JahiaUser;
-import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +57,7 @@ public class WebAuthnFactorMutation {
 
     private static final Logger logger = LoggerFactory.getLogger(WebAuthnFactorMutation.class);
 
+    private static final String ERROR_PREFIX = "factor.webauthn.";
     private static final String ERROR_NOT_AUTHENTICATED = "factor.webauthn.not_authenticated";
     private static final String ERROR_INTERNAL = "factor.webauthn.internal_error";
     private static final String ERROR_NO_REGISTRATION_STATE = "factor.webauthn.no_registration_state";
@@ -187,9 +188,15 @@ public class WebAuthnFactorMutation {
         try {
             WebAuthnService.RegistrationOutcome outcome = webAuthnService.finishRegistration(requestJson, response);
             String handle = credentialStore.userHandleFor(userId).map(ByteArray::getBase64Url).orElse(null);
-            credentialStore.addCredential(userId, new WebAuthnCredentialStore.NewCredential(
-                    outcome.getCredentialIdB64(), outcome.getPublicKeyCoseB64(), outcome.getSignCount(),
-                    handle, outcome.getTransports(), outcome.getAaguidB64(), nickname));
+            credentialStore.addCredential(userId, WebAuthnCredentialStore.NewCredential.builder()
+                    .credentialIdB64(outcome.getCredentialIdB64())
+                    .publicKeyCoseB64(outcome.getPublicKeyCoseB64())
+                    .signCount(outcome.getSignCount())
+                    .userHandleB64(handle)
+                    .transports(outcome.getTransports())
+                    .aaguid(outcome.getAaguidB64())
+                    .nickname(nickname)
+                    .build());
             credentialStore.clearGrace(userId);
             http.removeAttribute(REGISTRATION_STATE_ATTR);
             if (preAuth) {
@@ -309,57 +316,24 @@ public class WebAuthnFactorMutation {
         return user;
     }
 
-    /**
-     * The authenticated (non-guest) caller, or {@code null}. CRITICAL: Jahia resolves
-     * unauthenticated GraphQL requests to the GUEST user, not to {@code null} — treating guest
-     * as authenticated would silently run self-service operations against the literal
-     * {@code guest} account (and bypass the pre-auth registration guard).
-     */
     private static JahiaUser currentNonGuestUser() {
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
-        return (user == null || JahiaUserManagerService.isGuest(user)) ? null : user;
+        return MfaGraphqlAuth.currentNonGuestUser();
     }
 
     /**
-     * The pre-authentication inline-registration guard. Registering an authenticator without an
-     * authenticated user is allowed ONLY when ALL of the following hold (fails CLOSED on doubt):
-     * <ol>
-     *   <li>an initiated, error-free MFA session exists (the password was already validated);</li>
-     *   <li>this factor is part of the global enforcement policy;</li>
-     *   <li>the session user owns NO globally enforced factor — the anti-takeover barrier: a
-     *       caller who only proved the password must never add an authenticator to an account
-     *       that already has a second factor.</li>
-     * </ol>
+     * The pre-authentication inline-registration guard. Delegates to the shared
+     * {@link MfaPreAuthGuard#requireEnrollmentSubject} (the anti-takeover barrier: a caller who
+     * only proved the password must never add an authenticator to an account that already owns an
+     * enforced factor).
      *
      * @return the MFA-session user id (the registration subject)
      */
     private String requirePreAuthRegistrationSubject(HttpServletRequest request) {
-        MfaSession session = mfaService.getMfaSession(request);
-        if (session == null || !session.isInitiated() || session.hasError()) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        if (!globalPolicy.isEnforced(FACTOR_TYPE)) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        String userId = session.getContext().getUserId();
-        boolean ownsEnforcedFactor;
-        try {
-            ownsEnforcedFactor = factorDirectory.hasAnyEnforcedFactorConfigured(userId);
-        } catch (RuntimeException e) {
-            logger.error("Could not evaluate factor ownership for user {} (refusing pre-auth registration): {}",
-                    userId, e.getMessage());
-            throw new DataFetchingException(ERROR_INTERNAL);
-        }
-        if (ownsEnforcedFactor) {
-            logger.warn("Refused pre-auth WebAuthn registration for user {}: an enforced factor is already "
-                    + "configured", userId);
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        return userId;
+        return MfaPreAuthGuard.requireEnrollmentSubject(request, FACTOR_TYPE, ERROR_PREFIX,
+                mfaService, globalPolicy, factorDirectory);
     }
 
     private static String currentUserName() {
-        JahiaUser u = JCRSessionFactory.getInstance().getCurrentUser();
-        return u == null ? "<anonymous>" : u.getName();
+        return MfaGraphqlAuth.currentUserName();
     }
 }

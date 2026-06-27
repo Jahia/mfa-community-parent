@@ -35,9 +35,11 @@ import java.util.concurrent.atomic.AtomicReference;
  *   <li>the Karaf configuration property {@code secret.encryption.key} (PID
  *       {@code org.jahia.modules.totp}) — a Base64-encoded 256-bit key supplied by the
  *       operator; or</li>
- *   <li>an auto-generated key persisted to {@code <jahiaVarDir>/mfa-totp-factor/secret.key}
+ *   <li>an auto-generated key persisted to {@code <jahiaVarDir>/mfa-factors/secret.key}
  *       — which lives on the filesystem, <b>outside the JCR datastore</b>, so a database or
- *       JCR backup leak no longer discloses the secrets.</li>
+ *       JCR backup leak no longer discloses the secrets. The pre-rename
+ *       {@code <jahiaVarDir>/mfa-totp-factor/secret.key} location is read as a LEGACY fallback
+ *       only (never written) so keys created before the rename keep decrypting.</li>
  * </ol>
  * Stored format: {@code v1:<base64(iv)>:<base64(ciphertext||tag)>}. Values that do not carry
  * the {@code v1:} prefix are treated as legacy plaintext (Base32) and returned as-is, so

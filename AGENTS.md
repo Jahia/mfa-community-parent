@@ -71,9 +71,9 @@ totp/                              OSGi bundle module (artifactId mfa-factors-to
       Totp*Result.java               Result DTOs.
   src/main/javascript/               Dashboard (self-service) + per-site admin React (webpack/Module Federation).
   src/main/resources/META-INF/
-    definitions.cnd                  JCR node types: upaTotp:userSettings (per-user) + upaTotp:siteSettings (per-site).
+    definitions.cnd                  JCR node types: upaTotp:userSettings (enrollment), upaTotp:lockout (brute-force), upaTotp:graceTracking (enforcement), upaTotp:siteSettings (policy), upaTotp:auditEvent (audit), upaTotp:auditLog (folder).
     configurations/org.jahia.modules.totp.cfg             TOTP-specific config (secret.encryption.key).
-    configurations/...authorization-mfa-factors-totp.yml  Grants GraphQL types.
+    configurations/...authorization-mfa-factors-totp.yml  Grants GraphQL mutation/query types.
   src/test/java/...                  JUnit 4 tests.
 webauthn/                          OSGi bundle module (artifactId mfa-factors-webauthn; embeds yubico webauthn-server-core).
   src/main/java/org/jahia/modules/upa/mfa/webauthn/
@@ -130,11 +130,11 @@ from a snapshot.
 
 ## GraphQL wiring
 
-The mutation tree is grafted onto UPA's `FactorsMutation` via the
-`@GraphQLTypeExtension` annotation in `TotpFactorMutationExtension`. Discovery happens
+The mutation and query trees are grafted onto UPA's `FactorsMutation` and `FactorsQuery` via the
+`@GraphQLTypeExtension` annotations in `TotpFactorMutationExtension` / `TotpFactorQueryExtension`. Discovery happens
 through `gql/ExtensionsAutoDiscovery`, registered as an OSGi `@Component` that exposes a
-`DXGraphQLExtensionsProvider`. If you add new GraphQL types or mutations, register them
-in the same file and grant them in `org.jahia.bundles.api.authorization-mfa-factors-totp.yml`.
+`DXGraphQLExtensionsProvider`. If you add new GraphQL types, mutations, or queries, register them
+in the same file and grant them (mutation/query types and their result types) in `org.jahia.bundles.api.authorization-mfa-factors-totp.yml`.
 
 ## Common pitfalls
 

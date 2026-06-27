@@ -1,4 +1,4 @@
-import { type BaseError, topLevelError } from "./common";
+import { type BaseError, networkError, topLevelError } from "./common";
 
 export interface EnrollTotpResultSuccess {
   success: true;
@@ -16,42 +16,46 @@ export type EnrollTotpResult = EnrollTotpResultSuccess | BaseError;
  * as a QR code.
  */
 export default async function enrollTotp(apiRoot: string): Promise<EnrollTotpResult> {
-  const response = await fetch(apiRoot, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: /* GraphQL */ `
-        mutation enrollTotp {
-          upa {
-            mfaFactors {
-              totp {
-                enroll {
-                  secret
-                  otpauthUri
-                  issuer
-                  accountName
+  try {
+    const response = await fetch(apiRoot, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: /* GraphQL */ `
+          mutation enrollTotp {
+            upa {
+              mfaFactors {
+                totp {
+                  enroll {
+                    secret
+                    otpauthUri
+                    issuer
+                    accountName
+                  }
                 }
               }
             }
           }
-        }
-      `,
-    }),
-  });
-  const result = await response.json();
-  const enroll = result?.data?.upa?.mfaFactors?.totp?.enroll;
-  if (enroll?.secret && enroll?.otpauthUri) {
+        `,
+      }),
+    });
+    const result = await response.json();
+    const enroll = result?.data?.upa?.mfaFactors?.totp?.enroll;
+    if (enroll?.secret && enroll?.otpauthUri) {
+      return {
+        success: true,
+        secret: enroll.secret,
+        otpauthUri: enroll.otpauthUri,
+        issuer: enroll.issuer,
+        accountName: enroll.accountName,
+      };
+    }
     return {
-      success: true,
-      secret: enroll.secret,
-      otpauthUri: enroll.otpauthUri,
-      issuer: enroll.issuer,
-      accountName: enroll.accountName,
+      success: false,
+      error: topLevelError(result) ?? { code: "unexpected_error" },
+      fatalError: false,
     };
+  } catch {
+    return networkError();
   }
-  return {
-    success: false,
-    error: topLevelError(result) ?? { code: "unexpected_error" },
-    fatalError: false,
-  };
 }

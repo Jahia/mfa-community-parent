@@ -1,9 +1,12 @@
+import type { RefObject } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import classes from "./component.module.css";
 
 interface FactorChooserProps {
   factors: string[];
   onSelect: (factor: string) => void;
+  /** Focus target for step-change focus management (WCAG 2.4.3). */
+  headingRef?: RefObject<HTMLHeadingElement | null>;
 }
 
 /**
@@ -18,6 +21,7 @@ interface FactorChooserProps {
 export default function FactorChooser({
   factors,
   onSelect,
+  headingRef,
 }: Readonly<FactorChooserProps>) {
   const { t } = useTranslation();
 
@@ -36,7 +40,7 @@ export default function FactorChooser({
 
   return (
     <div className={classes.otpFormWrapper}>
-      <h2>
+      <h2 ref={headingRef} tabIndex={-1}>
         <Trans i18nKey="factorChooser.title" />
       </h2>
       <p className={classes.helpText}>

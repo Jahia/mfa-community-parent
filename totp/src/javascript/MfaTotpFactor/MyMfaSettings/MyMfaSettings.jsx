@@ -179,6 +179,7 @@ const MyMfaSettings = () => {
                     />
 
                     <CodePromptDialog
+                        isBackupCodeAllowed
                         isOpen={disableOpen}
                         title={t('disableDialog.title')}
                         description={t('disableDialog.description')}
@@ -191,6 +192,7 @@ const MyMfaSettings = () => {
                     />
 
                     <CodePromptDialog
+                        isBackupCodeAllowed
                         isOpen={regenOpen}
                         title={t('regenDialog.title')}
                         description={t('regenDialog.description')}

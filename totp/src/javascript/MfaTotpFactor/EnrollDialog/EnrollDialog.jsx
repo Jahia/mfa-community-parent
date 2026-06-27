@@ -52,11 +52,12 @@ const EnrollDialog = ({isOpen, enrollData, isLoading, errorKey, onCancel, onConf
                     <Typography style={{marginTop: 16, display: 'block'}}>{t('enrollDialog.step2')}</Typography>
                     <Input data-testid="enroll-code-input"
                            value={code}
-                           maxLength={10}
+                           maxLength={6}
+                           inputMode="numeric"
                            placeholder="123456"
                            aria-label={t('enrollDialog.step2')}
                            style={{marginTop: 8}}
-                           onChange={e => setCode(e.target.value.replace(/\D/g, ''))}/>
+                           onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}/>
                     {errorKey && (
                         <Typography role="alert"
                                     style={{marginTop: 12, color: '#a00000', display: 'block'}}
@@ -71,7 +72,7 @@ const EnrollDialog = ({isOpen, enrollData, isLoading, errorKey, onCancel, onConf
                     <Button color="accent"
                             data-testid="enroll-confirm-btn"
                             label={t('confirm')}
-                            isDisabled={isLoading || code.length < 6}
+                            isDisabled={isLoading || code.length !== 6}
                             onClick={() => onConfirm(code)}/>
                 </ModalFooter>
             </div>

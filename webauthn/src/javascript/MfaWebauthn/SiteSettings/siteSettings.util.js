@@ -24,5 +24,9 @@ export function mapAdminError(err) {
         return 'siteSettings.errors.notAuthenticated';
     }
 
+    if (msg.indexOf('invalid_url') !== -1) {
+        return 'siteSettings.errors.invalidUrl';
+    }
+
     return 'siteSettings.errors.generic';
 }

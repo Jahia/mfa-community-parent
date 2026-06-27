@@ -1,4 +1,4 @@
-import { type BaseError, topLevelError } from "./common";
+import { type BaseError, networkError, topLevelError } from "./common";
 
 export interface ConfirmEnrollTotpResultSuccess {
   success: true;
@@ -17,25 +17,27 @@ export default async function confirmEnrollTotp(
   apiRoot: string,
   code: string,
 ): Promise<ConfirmEnrollTotpResult> {
-  const response = await fetch(apiRoot, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: /* GraphQL */ `
-        mutation confirmEnrollTotp($code: String!) {
-          upa {
-            mfaFactors {
-              totp {
-                confirmEnroll(code: $code) {
-                  backupCodes
-                  session {
-                    initiated
-                    remainingFactors
-                    error {
-                      code
-                      arguments {
-                        name
-                        value
+  try {
+    const response = await fetch(apiRoot, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: /* GraphQL */ `
+          mutation confirmEnrollTotp($code: String!) {
+            upa {
+              mfaFactors {
+                totp {
+                  confirmEnroll(code: $code) {
+                    backupCodes
+                    session {
+                      initiated
+                      remainingFactors
+                      error {
+                        code
+                        arguments {
+                          name
+                          value
+                        }
                       }
                     }
                   }
@@ -43,23 +45,25 @@ export default async function confirmEnrollTotp(
               }
             }
           }
-        }
-      `,
-      variables: { code },
-    }),
-  });
-  const result = await response.json();
-  const confirm = result?.data?.upa?.mfaFactors?.totp?.confirmEnroll;
-  if (confirm?.backupCodes) {
+        `,
+        variables: { code },
+      }),
+    });
+    const result = await response.json();
+    const confirm = result?.data?.upa?.mfaFactors?.totp?.confirmEnroll;
+    if (confirm?.backupCodes) {
+      return {
+        success: true,
+        backupCodes: confirm.backupCodes,
+        remainingFactors: confirm.session?.remainingFactors ?? [],
+      };
+    }
     return {
-      success: true,
-      backupCodes: confirm.backupCodes,
-      remainingFactors: confirm.session?.remainingFactors ?? [],
+      success: false,
+      error: topLevelError(result) ?? confirm?.session?.error ?? { code: "unexpected_error" },
+      fatalError: false,
     };
+  } catch {
+    return networkError();
   }
-  return {
-    success: false,
-    error: topLevelError(result) ?? confirm?.session?.error ?? { code: "unexpected_error" },
-    fatalError: false,
-  };
 }

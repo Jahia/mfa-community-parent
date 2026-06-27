@@ -148,13 +148,14 @@ const CheckboxField = ({id, testid, checked, disabled, label, help, onChange}) =
                checked={checked}
                disabled={disabled}
                data-testid={testid}
-               style={{marginTop: 4}}
+               aria-describedby={`${id}-help`}
+               style={{marginTop: 4, cursor: disabled ? 'not-allowed' : 'pointer'}}
                onChange={e => onChange(e.target.checked)}/>
         <div>
             <label htmlFor={id} style={{fontWeight: 600, display: 'block', cursor: disabled ? 'not-allowed' : 'pointer'}}>
                 {label}
             </label>
-            <Typography variant="caption" style={{display: 'block', color: '#555'}}>{help}</Typography>
+            <Typography id={`${id}-help`} variant="caption" style={{display: 'block', color: '#555'}}>{help}</Typography>
         </div>
     </div>
 );

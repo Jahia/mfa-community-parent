@@ -1,5 +1,5 @@
 {
-  "title": "Two-factor authentication (TOTP)",
+  "title": "Authenticator app (TOTP)",
   "status": "Status:",
   "enabled": "Enabled",
   "disabled": "Disabled",
@@ -26,6 +26,11 @@
     "title": "Regenerate backup codes",
     "description": "Enter your current 6-digit code to generate a new set. Previous backup codes will stop working."
   },
+  "codePrompt": {
+    "codeOrBackupLabel": "6-digit code or backup code",
+    "codeOrBackupPlaceholder": "123456 or a backup code",
+    "backupHint": "Enter the 6-digit code from your authenticator app, or one of your single-use backup codes if you no longer have the app."
+  },
   "backupCodesDialog": {
     "title": "Your backup codes",
     "warning": "Save these codes somewhere safe. Each can be used only once and they will not be shown again.",
@@ -41,8 +46,8 @@
     "generic": "Something went wrong. Please try again."
   },
   "siteSettings": {
-    "menuLabel": "Two-factor authentication",
-    "title": "Two-factor authentication — {{siteKey}}",
+    "menuLabel": "Authenticator app (TOTP)",
+    "title": "Authenticator app (TOTP) - {{siteKey}}",
     "description": "Choose whether two-factor authentication (TOTP) is active on this site and which groups it applies to. Whether enrollment is REQUIRED is a platform-wide setting (enforcedFactors in the org.jahia.modules.mfa.extensions configuration).",
     "noSite": "No site context available. Open this page from a site's administration panel.",
     "save": "Save",
@@ -67,7 +72,7 @@
       "done": "The user's TOTP enrollment has been reset."
     },
     "audit": {
-      "title": "Two-factor authentication (TOTP)",
+      "title": "Authenticator app (TOTP)",
       "loadEvents": "Load recent events",
       "loadReport": "Enrollment report",
       "reportSummary": "{{enrolled}} of {{total}} users are enrolled in TOTP.",
@@ -90,19 +95,19 @@
   },
   "extensionsSettings": {
     "menuLabel": "Extensions",
-    "title": "Extensions — {{siteKey}}",
+    "title": "Extensions - {{siteKey}}",
     "description": "Point this site's login and logout at custom pages. When set, unauthenticated users are redirected to the login page below instead of the default. Leave empty to fall back to the global configuration, then to Jahia's default.",
     "loginUrl": {
       "label": "Login page URL",
-      "help": "A site page reachable without authentication that renders the TOTP login UI. Must be a relative path starting with /, e.g. /sites/mySite/login.html — absolute or external URLs are rejected."
+      "help": "A site page reachable without authentication that renders the TOTP login UI. Must be a relative path starting with /, e.g. /sites/mySite/login.html - absolute or external URLs are rejected."
     },
     "logoutUrl": {
       "label": "Logout page URL",
-      "help": "An optional custom sign-out page. Must be a relative path starting with /, e.g. /sites/mySite/logout.html — absolute or external URLs are rejected."
+      "help": "An optional custom sign-out page. Must be a relative path starting with /, e.g. /sites/mySite/logout.html - absolute or external URLs are rejected."
     }
   },
   "auditReporting": {
     "menuLabel": "Audit & reporting",
-    "title": "Audit & reporting — {{siteKey}}"
+    "title": "Audit & reporting - {{siteKey}}"
   }
 }

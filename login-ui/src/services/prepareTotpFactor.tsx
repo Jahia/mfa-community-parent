@@ -1,4 +1,4 @@
-import { type BaseError, type BaseSuccess, createError } from "./common";
+import { type BaseError, type BaseSuccess, createError, networkError } from "./common";
 
 interface PrepareTotpFactorResultSuccess extends BaseSuccess {
   /** True when the factor does not apply to this session — drain it with verify(""). */
@@ -17,22 +17,31 @@ export type PrepareTotpFactorResult =
 export default async function prepareTotpFactor(
   apiRoot: string,
 ): Promise<PrepareTotpFactorResult> {
-  const response = await fetch(apiRoot, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: /* GraphQL */ `
-        mutation prepareTotpFactor($factorType: String!) {
-          upa {
-            mfaFactors {
-              totp {
-                prepare {
-                  skipped
-                  session {
-                    initiated
-                    remainingFactors
-                    factorState(factorType: $factorType) {
-                      prepared
+  try {
+    const response = await fetch(apiRoot, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: /* GraphQL */ `
+          mutation prepareTotpFactor($factorType: String!) {
+            upa {
+              mfaFactors {
+                totp {
+                  prepare {
+                    skipped
+                    session {
+                      initiated
+                      remainingFactors
+                      factorState(factorType: $factorType) {
+                        prepared
+                        error {
+                          code
+                          arguments {
+                            name
+                            value
+                          }
+                        }
+                      }
                       error {
                         code
                         arguments {
@@ -41,37 +50,31 @@ export default async function prepareTotpFactor(
                         }
                       }
                     }
-                    error {
-                      code
-                      arguments {
-                        name
-                        value
-                      }
-                    }
                   }
                 }
               }
             }
           }
-        }
-      `,
-      variables: { factorType: "totp" },
-    }),
-  });
-  const result = await response.json();
-  const preparation = result?.data?.upa?.mfaFactors?.totp?.prepare;
-  const success =
-    preparation?.session?.factorState?.prepared && !preparation?.session?.factorState?.error;
-  if (success) {
-    return {
-      success: true,
-      skipped: Boolean(preparation.skipped),
-      remainingFactors: preparation.session.remainingFactors,
-    };
-  } else {
+        `,
+        variables: { factorType: "totp" },
+      }),
+    });
+    const result = await response.json();
+    const preparation = result?.data?.upa?.mfaFactors?.totp?.prepare;
+    const success =
+      preparation?.session?.factorState?.prepared && !preparation?.session?.factorState?.error;
+    if (success) {
+      return {
+        success: true,
+        skipped: Boolean(preparation.skipped),
+        remainingFactors: preparation.session.remainingFactors,
+      };
+    }
     return createError(
       preparation?.session?.error,
       preparation?.session?.factorState?.error,
     );
+  } catch {
+    return networkError();
   }
 }

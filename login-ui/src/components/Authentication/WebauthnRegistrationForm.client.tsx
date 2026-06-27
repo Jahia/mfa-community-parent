@@ -10,12 +10,15 @@ import {
 import { createCredential, getAssertion, isWebauthnSupported } from "../../services/webauthnBrowser";
 import classes from "./component.module.css";
 import ErrorMessage from "./ErrorMessage.client";
-import { convertErrorArgsToInterpolation } from "../../services/i18n";
+import { translateError } from "../../services/i18n";
 import type { MfaError } from "../../services/common";
+import ChangeMethodButton from "./ChangeMethodButton.client";
 
 interface WebauthnRegistrationFormProps {
   onComplete: (remainingFactors: string[]) => void;
   onFatalError: (error: MfaError) => void;
+  /** When set, render a "Choose a different setup method" control returning to the enroll chooser. */
+  onChangeMethod?: () => void;
 }
 
 /**
@@ -32,8 +35,7 @@ export default function WebauthnRegistrationForm(props: Readonly<WebauthnRegistr
   const supported = isWebauthnSupported();
 
   const fail = (mfaError: MfaError) => {
-    const { key, interpolation } = convertErrorArgsToInterpolation(mfaError);
-    setError(t(key, interpolation));
+    setError(translateError(t, mfaError));
   };
 
   /** Register (create) then sign in (get): two authenticator interactions, one flow. */
@@ -109,6 +111,15 @@ export default function WebauthnRegistrationForm(props: Readonly<WebauthnRegistr
         <p className={classes.helpText} role="alert" data-testid="webauthn-unsupported">
           <Trans i18nKey="factor.webauthn.unsupported" />
         </p>
+      )}
+      {props.onChangeMethod && (
+        <div className={classes.additionalAction}>
+          <ChangeMethodButton
+            onClick={props.onChangeMethod}
+            labelKey="enroll.chooser.useDifferentMethod"
+            testId="change-enroll-method"
+          />
+        </div>
       )}
     </div>
   );

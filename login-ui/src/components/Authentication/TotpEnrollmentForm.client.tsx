@@ -5,13 +5,16 @@ import { useApiRoot } from "../../hooks/ApiRootContext";
 import { confirmEnrollTotp, enrollTotp } from "../../services";
 import classes from "./component.module.css";
 import ErrorMessage from "./ErrorMessage.client";
-import { convertErrorArgsToInterpolation } from "../../services/i18n";
+import { translateError } from "../../services/i18n";
 import type { MfaError } from "../../services/common";
 import { submitOnEnter } from "./formKeyboard";
+import ChangeMethodButton from "./ChangeMethodButton.client";
 
 interface TotpEnrollmentFormProps {
   onComplete: (remainingFactors: string[]) => void;
   onFatalError: (error: MfaError) => void;
+  /** When set, render a "Choose a different setup method" control returning to the enroll chooser. */
+  onChangeMethod?: () => void;
 }
 
 const TOTP_CODE_LENGTH = 6;
@@ -34,8 +37,10 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [copyConfirmation, setCopyConfirmation] = useState("");
   const remainingRef = useRef<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const backupHeadingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     enrollTotp(apiRoot)
@@ -44,15 +49,28 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
           setSecret(result.secret);
           setOtpauthUri(result.otpauthUri);
           setPhase("setup");
-          setTimeout(() => inputRef.current?.focus(), 0);
         } else {
           props.onFatalError(result.error);
         }
       })
-      .catch(() => props.onFatalError({ code: "unexpected_error" }));
+      .catch(() => props.onFatalError({ code: "network_error" }));
     // Intentionally run once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Focus the code input once the setup form is shown (item 4: effect, not setTimeout).
+  useEffect(() => {
+    if (phase === "setup") {
+      inputRef.current?.focus();
+    }
+  }, [phase]);
+
+  // Move focus to the backup-codes heading when that phase appears (WCAG 2.4.3, item 9).
+  useEffect(() => {
+    if (phase === "backupCodes") {
+      backupHeadingRef.current?.focus();
+    }
+  }, [phase]);
 
   const handleCodeInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setCode(e.target.value.replace(/\D/g, "").slice(0, TOTP_CODE_LENGTH));
@@ -73,8 +91,7 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
-          const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-          setError(t(key, interpolation));
+          setError(translateError(t, result.error));
         }
       })
       .finally(() => setSubmitting(false));
@@ -83,6 +100,28 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     submit();
+  };
+
+  const copyBackupCodes = () => {
+    const text = backupCodes.join("\n");
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => setCopyConfirmation(t("enroll.totp.copied")))
+      .catch(() => {
+        /* Clipboard unavailable/denied: the codes remain visible and selectable above. */
+      });
+  };
+
+  const downloadBackupCodes = () => {
+    const blob = new Blob([backupCodes.join("\n") + "\n"], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "backup-codes.txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   if (phase === "loading") {
@@ -96,7 +135,7 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
   if (phase === "backupCodes") {
     return (
       <div className={classes.otpFormWrapper}>
-        <h2>
+        <h2 ref={backupHeadingRef} tabIndex={-1}>
           <Trans i18nKey="enroll.totp.backupTitle" />
         </h2>
         <p className={classes.helpText} role="alert">
@@ -108,6 +147,29 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
         >
           {backupCodes.join("\n")}
         </pre>
+        <div
+          style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}
+        >
+          <button
+            type="button"
+            data-testid="enroll-backup-copy"
+            className={classes.submitButton}
+            onClick={copyBackupCodes}
+          >
+            {t("enroll.totp.copyCodes")}
+          </button>
+          <button
+            type="button"
+            data-testid="enroll-backup-download"
+            className={classes.submitButton}
+            onClick={downloadBackupCodes}
+          >
+            {t("enroll.totp.downloadCodes")}
+          </button>
+        </div>
+        <div role="status" aria-live="polite" className={classes.helpText} data-testid="enroll-backup-copied">
+          {copyConfirmation}
+        </div>
         <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
           <button
             type="button"
@@ -130,8 +192,15 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
       <p className={classes.helpText}>
         <Trans i18nKey="enroll.totp.scan" />
       </p>
-      <div style={{ textAlign: "center", margin: "1rem 0" }}>
-        <QRCodeCanvas value={otpauthUri} size={224} level="M" data-testid="enroll-qr" />
+      {/* The QR canvas has no intrinsic text alternative; wrap it as an image with a label
+          (WCAG 1.1.1). The secret is also shown as selectable text below. */}
+      <div
+        style={{ textAlign: "center", margin: "1rem 0" }}
+        role="img"
+        aria-label={t("enroll.totp.qrAlt")}
+        data-testid="enroll-qr"
+      >
+        <QRCodeCanvas value={otpauthUri} size={224} level="M" />
       </div>
       <p className={classes.helpText}>
         <Trans i18nKey="enroll.totp.secretLabel" />
@@ -176,6 +245,15 @@ export default function TotpEnrollmentForm(props: Readonly<TotpEnrollmentFormPro
             {t("enroll.totp.confirm")}
           </button>
         </div>
+        {props.onChangeMethod && (
+          <div className={classes.additionalAction}>
+            <ChangeMethodButton
+              onClick={props.onChangeMethod}
+              labelKey="enroll.chooser.useDifferentMethod"
+              testId="change-enroll-method"
+            />
+          </div>
+        )}
       </form>
     </div>
   );

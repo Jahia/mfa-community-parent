@@ -1,24 +1,17 @@
 package org.jahia.modules.upa.mfa.totp.gql;
 
-import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
-import org.jahia.services.content.JCRNodeWrapper;
-import org.jahia.services.content.JCRSessionFactory;
+import org.jahia.modules.upa.mfa.extensions.MfaAdminAccess;
 import org.jahia.services.content.JCRSessionWrapper;
-import org.jahia.services.usermanager.JahiaUser;
-
-import javax.jcr.RepositoryException;
 
 /**
- * Shared site-administration permission gate for the per-site / admin TOTP GraphQL operations.
- * The up-front {@code hasPermission} check yields a friendly error; the JCR ACL on the write
- * remains the load-bearing guard.
+ * Site-administration permission gate for the per-site / admin TOTP GraphQL operations. Thin
+ * wrapper over the shared {@link MfaAdminAccess}, binding the TOTP error-code prefix so the
+ * surfaced errors match the TOTP message catalog.
  */
 final class TotpAdminAccess {
 
-    static final String SITE_ADMIN_PERMISSION = "siteAdminAccess";
-    static final String ERROR_NOT_AUTHENTICATED = "factor.totp.not_authenticated";
-    static final String ERROR_PERMISSION_DENIED = "factor.totp.permission_denied";
-    static final String ERROR_INTERNAL = "factor.totp.internal_error";
+    /** Error-code prefix for this factor; the shared gate appends not_authenticated/permission_denied/internal_error. */
+    static final String ERROR_PREFIX = "factor.totp.";
 
     private TotpAdminAccess() {
         // utility
@@ -29,24 +22,6 @@ final class TotpAdminAccess {
      * Returns the caller's JCR session for convenience (writes should reuse it).
      */
     static JCRSessionWrapper requireSiteAdmin(String siteKey) {
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
-        if (user == null) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        try {
-            JCRSessionWrapper session = JCRSessionFactory.getInstance().getCurrentUserSession();
-            // nodeExists() returns false both when the site is missing and when the caller
-            // cannot see it — for a non-root user the latter means "not a site admin".
-            if (!session.nodeExists("/sites/" + siteKey)) {
-                throw new DataFetchingException(user.isRoot() ? ERROR_INTERNAL : ERROR_PERMISSION_DENIED);
-            }
-            JCRNodeWrapper siteNode = session.getNode("/sites/" + siteKey);
-            if (!user.isRoot() && !siteNode.hasPermission(SITE_ADMIN_PERMISSION)) {
-                throw new DataFetchingException(ERROR_PERMISSION_DENIED);
-            }
-            return session;
-        } catch (RepositoryException e) {
-            throw new DataFetchingException(ERROR_INTERNAL);
-        }
+        return MfaAdminAccess.requireSiteAdmin(siteKey, ERROR_PREFIX);
     }
 }

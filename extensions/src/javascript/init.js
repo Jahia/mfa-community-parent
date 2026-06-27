@@ -8,7 +8,9 @@ export default function () {
         callback: async () => {
             await i18next.loadNamespaces('mfa-factors-extensions');
             register();
-            console.debug('%c mfa-factors-extensions: activation completed', 'color: #006633');
+            if (process.env.NODE_ENV !== 'production') {
+                console.debug('%c mfa-factors-extensions: activation completed', 'color: #006633');
+            }
         }
     });
 }

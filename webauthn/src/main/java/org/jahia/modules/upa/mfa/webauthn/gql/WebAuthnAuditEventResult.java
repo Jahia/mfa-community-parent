@@ -3,15 +3,15 @@ package org.jahia.modules.upa.mfa.webauthn.gql;
 import graphql.annotations.annotationTypes.GraphQLDescription;
 import graphql.annotations.annotationTypes.GraphQLField;
 import graphql.annotations.annotationTypes.GraphQLName;
-import org.jahia.modules.upa.mfa.webauthn.WebAuthnAuditLog;
+import org.jahia.modules.upa.mfa.extensions.MfaAuditEvent;
 
 @GraphQLName("MfaWebauthnAuditEvent")
 @GraphQLDescription("A single WebAuthn audit event.")
 public class WebAuthnAuditEventResult {
 
-    private final WebAuthnAuditLog.AuditEvent event;
+    private final MfaAuditEvent event;
 
-    public WebAuthnAuditEventResult(WebAuthnAuditLog.AuditEvent event) {
+    public WebAuthnAuditEventResult(MfaAuditEvent event) {
         this.event = event;
     }
 

@@ -2,9 +2,14 @@
 mfa:
   grants:
   - api: "graphql.MfaTotpFactorMutation"
+  - api: "graphql.MfaTotpFactorQuery"
   - api: "graphql.MfaTotpPreparation"
   - api: "graphql.MfaTotpEnrollResult"
   - api: "graphql.MfaTotpConfirmEnrollResult"
   - api: "graphql.MfaTotpBackupCodesResult"
+  - api: "graphql.MfaTotpSiteSettingsResult"
+  - api: "graphql.MfaTotpStatusResult"
+  - api: "graphql.MfaTotpAuditEvent"
+  - api: "graphql.MfaTotpEnrollmentReport"
   auto_apply:
   - always: "true"

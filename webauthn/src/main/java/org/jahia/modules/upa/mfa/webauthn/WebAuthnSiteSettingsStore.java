@@ -1,5 +1,6 @@
 package org.jahia.modules.upa.mfa.webauthn;
 
+import org.jahia.modules.upa.mfa.extensions.MfaSiteSettingsStoreBase;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.content.JCRTemplate;
@@ -9,7 +10,6 @@ import org.slf4j.LoggerFactory;
 
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
-import javax.jcr.Value;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -17,19 +17,24 @@ import java.util.List;
 /**
  * Reads and writes the {@code upaWebauthn:siteSettings} mixin on site nodes — the per-site
  * WebAuthn policy (enabled / enabledGroups). Mirrors {@code TotpSiteSettingsStore} (without the
- * login/logout URL fields, which are TOTP-specific). Enforcement (and its grace window) is
- * GLOBAL — see the extensions {@code MfaGlobalPolicy}; the legacy per-site
+ * login/logout URL fields, which are TOTP-specific); the shared read/query/write helpers live in
+ * {@link MfaSiteSettingsStoreBase}. Enforcement (and its grace window) is GLOBAL — see the
+ * extensions {@code MfaGlobalPolicy}; the legacy per-site
  * {@code upaWebauthn:enforced}/{@code upaWebauthn:graceDays} properties remain in the CND for
  * repository compatibility but are no longer read or written.
  */
 @Component(service = WebAuthnSiteSettingsStore.class, immediate = true)
-public class WebAuthnSiteSettingsStore {
+public class WebAuthnSiteSettingsStore extends MfaSiteSettingsStoreBase {
 
     private static final Logger logger = LoggerFactory.getLogger(WebAuthnSiteSettingsStore.class);
 
     public static final String MIXIN_SITE_SETTINGS = "upaWebauthn:siteSettings";
     public static final String PROP_ENABLED = "upaWebauthn:enabled";
     public static final String PROP_ENABLED_GROUPS = "upaWebauthn:enabledGroups";
+
+    @Override protected String mixinSiteSettings()  { return MIXIN_SITE_SETTINGS; }
+    @Override protected String propEnabled()        { return PROP_ENABLED; }
+    @Override protected String propEnabledGroups()  { return PROP_ENABLED_GROUPS; }
 
     /** Snapshot of the WebAuthn settings for a site. */
     public static final class WebAuthnSiteSettings {
@@ -63,39 +68,8 @@ public class WebAuthnSiteSettingsStore {
             if (!siteNode.isNodeType(MIXIN_SITE_SETTINGS)) {
                 return WebAuthnSiteSettings.DISABLED;
             }
-            boolean enabled = siteNode.hasProperty(PROP_ENABLED) && siteNode.getProperty(PROP_ENABLED).getBoolean();
-            return new WebAuthnSiteSettings(enabled, readGroups(siteNode));
+            return new WebAuthnSiteSettings(readEnabled(siteNode), readGroups(siteNode));
         });
-    }
-
-    /**
-     * Whether at least one site has WebAuthn {@code enabled}. Used by the shared
-     * {@code /cms/login} gate on its no-resolvable-site code path: while the global policy
-     * enforces this factor, any site with it enabled makes the legacy login endpoint a
-     * second-factor bypass vector. (Enforcement itself is global — see MfaGlobalPolicy.)
-     */
-    public boolean isAnySiteEnabled() throws RepositoryException {
-        return Boolean.TRUE.equals(JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
-            javax.jcr.query.Query query = session.getWorkspace().getQueryManager().createQuery(
-                    "SELECT * FROM [" + MIXIN_SITE_SETTINGS + "] WHERE [" + PROP_ENABLED + "] = true",
-                    javax.jcr.query.Query.JCR_SQL2);
-            query.setLimit(1);
-            return query.execute().getNodes().hasNext();
-        }));
-    }
-
-    private static List<String> readGroups(JCRNodeWrapper siteNode) throws RepositoryException {
-        List<String> groups = new ArrayList<>();
-        if (!siteNode.hasProperty(PROP_ENABLED_GROUPS)) {
-            return groups;
-        }
-        for (Value v : siteNode.getProperty(PROP_ENABLED_GROUPS).getValues()) {
-            String g = v.getString();
-            if (g != null && !g.trim().isEmpty()) {
-                groups.add(g.trim());
-            }
-        }
-        return groups;
     }
 
     /**
@@ -108,17 +82,7 @@ public class WebAuthnSiteSettingsStore {
             throw new IllegalArgumentException("siteKey must not be empty");
         }
         JCRNodeWrapper siteNode = session.getNode("/sites/" + siteKey);
-        if (!siteNode.isNodeType(MIXIN_SITE_SETTINGS)) {
-            siteNode.addMixin(MIXIN_SITE_SETTINGS);
-        }
-        siteNode.setProperty(PROP_ENABLED, settings.isEnabled());
-        List<String> cleaned = new ArrayList<>();
-        for (String g : settings.getEnabledGroups()) {
-            if (g != null && !g.trim().isEmpty()) {
-                cleaned.add(g.trim());
-            }
-        }
-        siteNode.setProperty(PROP_ENABLED_GROUPS, cleaned.toArray(new String[0]));
+        List<String> cleaned = writeEnabledAndGroups(siteNode, settings.isEnabled(), settings.getEnabledGroups());
         session.save();
         logger.info("WebAuthn site settings saved for {}: enabled={}, groups={}",
                 siteKey, settings.isEnabled(), cleaned);

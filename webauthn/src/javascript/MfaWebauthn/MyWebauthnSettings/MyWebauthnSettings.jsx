@@ -6,14 +6,26 @@ import {ContentLayout} from '@jahia/moonstone-alpha';
 import {StatusQuery, RenameCredentialMutation, DeleteCredentialMutation} from '../MfaWebauthn.gql';
 import RegisterDialog from '../RegisterDialog/RegisterDialog';
 
-const formatDate = ms => (ms ? new Date(Number(ms)).toLocaleString() : '—');
+const formatDate = ms => (ms ? new Date(Number(ms)).toLocaleString() : '-');
+
+const mapError = err => {
+    const gql = err && err.graphQLErrors && err.graphQLErrors[0];
+    const msg = (gql && gql.message) || (err && err.message) || 'unknown_error';
+    if (msg.indexOf('not_found') !== -1) {
+        return 'errors.notFound';
+    }
+
+    return 'errors.generic';
+};
 
 const MyWebauthnSettings = () => {
     const {t} = useTranslation('mfa-factors-webauthn');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [renameTarget, setRenameTarget] = useState(null); // {credentialId, nickname}
     const [renameValue, setRenameValue] = useState('');
+    const [renameErrorKey, setRenameErrorKey] = useState(null);
     const [deleteTarget, setDeleteTarget] = useState(null); // {credentialId, nickname}
+    const [deleteErrorKey, setDeleteErrorKey] = useState(null);
     const {data, loading, refetch} = useQuery(StatusQuery, {fetchPolicy: 'network-only'});
 
     const [renameMutation, {loading: renaming}] = useMutation(RenameCredentialMutation);
@@ -22,18 +34,51 @@ const MyWebauthnSettings = () => {
     const credentials = (data && data.mfaWebauthn && data.mfaWebauthn.status &&
         data.mfaWebauthn.status.credentials) || [];
 
+    const openRename = c => {
+        setRenameValue(c.nickname || '');
+        setRenameErrorKey(null);
+        setRenameTarget(c);
+    };
+
+    const openDelete = c => {
+        setDeleteErrorKey(null);
+        setDeleteTarget(c);
+    };
+
+    const closeRename = () => {
+        setRenameTarget(null);
+        setRenameErrorKey(null);
+    };
+
+    const closeDelete = () => {
+        setDeleteTarget(null);
+        setDeleteErrorKey(null);
+    };
+
     const confirmRename = async () => {
-        if (renameValue.trim()) {
+        if (!renameValue.trim()) {
+            return;
+        }
+
+        try {
             await renameMutation({variables: {credentialId: renameTarget.credentialId, nickname: renameValue.trim()}});
+            setRenameErrorKey(null);
             setRenameTarget(null);
             refetch();
+        } catch (err) {
+            setRenameErrorKey(mapError(err));
         }
     };
 
     const confirmDelete = async () => {
-        await deleteMutation({variables: {credentialId: deleteTarget.credentialId}});
-        setDeleteTarget(null);
-        refetch();
+        try {
+            await deleteMutation({variables: {credentialId: deleteTarget.credentialId}});
+            setDeleteErrorKey(null);
+            setDeleteTarget(null);
+            refetch();
+        } catch (err) {
+            setDeleteErrorKey(mapError(err));
+        }
     };
 
     const mainActions = [
@@ -87,16 +132,13 @@ const MyWebauthnSettings = () => {
                                                             size="big"
                                                             label={t('list.rename')}
                                                             aria-label={t('list.renameOf', {nickname: c.nickname})}
-                                                            onClick={() => {
-                                                                setRenameValue(c.nickname || '');
-                                                                setRenameTarget(c);
-                                                            }}/>
+                                                            onClick={() => openRename(c)}/>
                                                     <Button variant="ghost"
                                                             size="big"
                                                             color="danger"
                                                             label={t('list.delete')}
                                                             aria-label={t('list.deleteOf', {nickname: c.nickname})}
-                                                            onClick={() => setDeleteTarget(c)}/>
+                                                            onClick={() => openDelete(c)}/>
                                                 </td>
                                             </tr>
                                         ))}
@@ -118,7 +160,7 @@ const MyWebauthnSettings = () => {
                                size="medium"
                                onOpenChange={open => {
                                    if (!open && !renaming) {
-                                       setRenameTarget(null);
+                                       closeRename();
                                    }
                                }}
                         >
@@ -135,9 +177,17 @@ const MyWebauthnSettings = () => {
                                            maxLength={60}
                                            data-testid="webauthn-rename-input"
                                            onChange={e => setRenameValue(e.target.value)}/>
+                                    {renameErrorKey && (
+                                        <Typography role="alert"
+                                                    style={{marginTop: 12, color: '#a00000', display: 'block'}}
+                                                    data-testid="webauthn-rename-error"
+                                        >
+                                            {t(renameErrorKey)}
+                                        </Typography>
+                                    )}
                                 </ModalBody>
                                 <ModalFooter>
-                                    <Button label={t('cancel')} isDisabled={renaming} onClick={() => setRenameTarget(null)}/>
+                                    <Button label={t('cancel')} isDisabled={renaming} onClick={closeRename}/>
                                     <Button color="accent"
                                             data-testid="webauthn-rename-confirm"
                                             label={t('list.rename')}
@@ -153,7 +203,7 @@ const MyWebauthnSettings = () => {
                                size="medium"
                                onOpenChange={open => {
                                    if (!open && !deleting) {
-                                       setDeleteTarget(null);
+                                       closeDelete();
                                    }
                                }}
                         >
@@ -161,9 +211,17 @@ const MyWebauthnSettings = () => {
                                 <ModalHeader title={t('list.deleteTitle')}/>
                                 <ModalBody>
                                     <Typography>{t('list.deleteConfirm', {nickname: deleteTarget.nickname})}</Typography>
+                                    {deleteErrorKey && (
+                                        <Typography role="alert"
+                                                    style={{marginTop: 12, color: '#a00000', display: 'block'}}
+                                                    data-testid="webauthn-delete-error"
+                                        >
+                                            {t(deleteErrorKey)}
+                                        </Typography>
+                                    )}
                                 </ModalBody>
                                 <ModalFooter>
-                                    <Button label={t('cancel')} isDisabled={deleting} onClick={() => setDeleteTarget(null)}/>
+                                    <Button label={t('cancel')} isDisabled={deleting} onClick={closeDelete}/>
                                     <Button color="danger"
                                             data-testid="webauthn-delete-confirm"
                                             label={t('list.delete')}

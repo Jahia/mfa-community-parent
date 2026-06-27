@@ -34,6 +34,10 @@ describe('Email-code factor at sign-in', () => {
     let email: string;
 
     before(() => {
+        // Activate Jahia's mail service against the stack's Mailpit container so the email_code
+        // factor can deliver its codes (the ci.startup.sh groovyConsole curl does not reliably
+        // run, leaving mail inactive and EmailCodeFactorProvider.prepare failing the send).
+        cy.executeGroovy('groovy/setupMail.groovy');
         createSiteWithTotpLoginPage(SITE_KEY);
         // Point UPA at this spec's login page and disable the prepare rate limit (each test
         // prepares the email factor for a fresh user; '0' mirrors totp-login.yml).

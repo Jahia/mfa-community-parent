@@ -3,14 +3,17 @@ import { useApiRoot } from "../../hooks/ApiRootContext";
 import { prepareEmailFactor, verifyEmailCodeFactor } from "../../services";
 import classes from "./component.module.css";
 import ErrorMessage from "./ErrorMessage.client";
-import { convertErrorArgsToInterpolation } from "../../services/i18n";
+import { translateError } from "../../services/i18n";
 import { Trans, useTranslation } from "react-i18next";
 import type { MfaError } from "../../services/common";
 import { submitOnEnter } from "./formKeyboard";
+import ChangeMethodButton from "./ChangeMethodButton.client";
 
 interface EmailCodeVerificationFormProps {
   onSuccess: (remainingFactors: string[]) => void;
   onFatalError: (error: MfaError) => void;
+  /** When set, render a "Use a different method" control returning to the factor chooser. */
+  onChangeMethod?: () => void;
 }
 
 const CODE_LENGTH = 6;
@@ -22,38 +25,58 @@ export default function EmailCodeVerificationForm(
   const apiRoot = useApiRoot();
   const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
+  // Distinguishes the very first send (full-screen spinner) from a user-triggered resend
+  // (in-place sending state + confirmation), so the spinner copy is honest about what's happening.
+  const [resending, setResending] = useState(false);
+  const [resentConfirmation, setResentConfirmation] = useState("");
   const [maskedEmail, setMaskedEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const prepare = () => {
-    setLoading(true);
+  const prepare = (isResend = false) => {
+    if (isResend) {
+      setResending(true);
+      setResentConfirmation("");
+    } else {
+      setLoading(true);
+    }
     prepareEmailFactor(apiRoot)
       .then((result) => {
         if (result.success) {
           setError("");
           setMaskedEmail(result.maskedEmail);
+          if (isResend) {
+            setResentConfirmation(t("factor.email_code.resent", { maskedEmail: result.maskedEmail }));
+          }
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
-          const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-          setError(t(key, interpolation));
+          setError(translateError(t, result.error));
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setResending(false);
+      });
   };
 
   useEffect(() => {
-    inputRef.current?.focus();
     prepare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Focus the code field once the form is interactive (item 4 parity: effect, not setTimeout).
+  useEffect(() => {
+    if (!loading) {
+      inputRef.current?.focus();
+    }
+  }, [loading]);
+
   if (loading) {
     return (
       <div role="status" aria-live="polite">
-        <Trans i18nKey="verify.loading" />
+        <Trans i18nKey="factor.email_code.sending" />
       </div>
     );
   }
@@ -73,8 +96,7 @@ export default function EmailCodeVerificationForm(
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
-          const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-          setError(t(key, interpolation));
+          setError(translateError(t, result.error));
         }
       })
       .finally(() => setSubmitting(false));
@@ -119,6 +141,10 @@ export default function EmailCodeVerificationForm(
           />
         </div>
         <ErrorMessage message={error} />
+        {/* Confirmation after a successful resend, announced to assistive tech (item 12). */}
+        <div role="status" aria-live="polite" className={classes.helpText} data-testid="email-resent">
+          {resentConfirmation}
+        </div>
         <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
           <button
             type="submit"
@@ -135,10 +161,25 @@ export default function EmailCodeVerificationForm(
             type="button"
             className={classes.toggleMode}
             data-testid="email-resend"
-            onClick={prepare}
+            disabled={resending}
+            aria-busy={resending}
+            onClick={() => prepare(true)}
           >
-            <Trans i18nKey="factor.email_code.resend" />
+            {resending ? (
+              <Trans i18nKey="factor.email_code.sending" />
+            ) : (
+              <Trans i18nKey="factor.email_code.resend" />
+            )}
           </button>
+          {props.onChangeMethod && (
+            <div style={{ marginTop: "0.5rem" }}>
+              <ChangeMethodButton
+                onClick={props.onChangeMethod}
+                labelKey="chooser.useDifferentMethod"
+                testId="change-method"
+              />
+            </div>
+          )}
         </div>
       </form>
     </div>

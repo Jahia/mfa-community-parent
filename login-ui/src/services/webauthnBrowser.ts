@@ -28,6 +28,47 @@ function bufToB64u(buf: ArrayBuffer): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/**
+ * The server emits credential options as W3C "…JSON": every ArrayBuffer field is a base64url
+ * string. These interfaces describe that pre-conversion shape so we can convert without `any`.
+ * Unknown extra fields (rpId, timeout, userVerification, attestation, authenticatorSelection…)
+ * pass through untouched via the index signature.
+ */
+interface CredentialDescriptorJSON {
+  id: string;
+  type: string;
+  transports?: string[];
+}
+
+interface AssertionOptionsJSON {
+  challenge: string;
+  allowCredentials?: CredentialDescriptorJSON[];
+  [key: string]: unknown;
+}
+
+interface CreationUserJSON {
+  id: string;
+  name: string;
+  displayName: string;
+  [key: string]: unknown;
+}
+
+interface CreationOptionsJSON {
+  challenge: string;
+  user: CreationUserJSON;
+  excludeCredentials?: CredentialDescriptorJSON[];
+  [key: string]: unknown;
+}
+
+/** Convert a base64url credential descriptor to the ArrayBuffer-id form the browser expects. */
+function toCredentialDescriptor(c: CredentialDescriptorJSON): PublicKeyCredentialDescriptor {
+  return {
+    type: c.type as PublicKeyCredentialType,
+    id: b64uToBuf(c.id),
+    ...(c.transports ? { transports: c.transports as AuthenticatorTransport[] } : {}),
+  };
+}
+
 /** Whether the browser exposes the WebAuthn API. */
 export function isWebauthnSupported(): boolean {
   return (
@@ -42,16 +83,16 @@ export function isWebauthnSupported(): boolean {
  * string for the verify mutation. Throws (NotAllowedError) if the user cancels or it times out.
  */
 export async function getAssertion(requestOptionsJson: string): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const options: any = JSON.parse(requestOptionsJson).publicKey;
-  options.challenge = b64uToBuf(options.challenge);
-  if (options.allowCredentials) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    options.allowCredentials = options.allowCredentials.map((c: any) => ({
-      ...c,
-      id: b64uToBuf(c.id),
-    }));
-  }
+  const parsed: AssertionOptionsJSON = JSON.parse(requestOptionsJson).publicKey;
+  // Build a NEW options object with converted ArrayBuffer fields rather than mutating the parsed
+  // JSON in place. Unknown pass-through fields are preserved by the spread.
+  const options: PublicKeyCredentialRequestOptions = {
+    ...(parsed as unknown as PublicKeyCredentialRequestOptions),
+    challenge: b64uToBuf(parsed.challenge),
+    ...(parsed.allowCredentials
+      ? { allowCredentials: parsed.allowCredentials.map(toCredentialDescriptor) }
+      : {}),
+  };
 
   const cred = (await navigator.credentials.get({ publicKey: options })) as PublicKeyCredential;
   const response = cred.response as AuthenticatorAssertionResponse;
@@ -75,17 +116,17 @@ export async function getAssertion(requestOptionsJson: string): Promise<string> 
  * or it times out. Mirrors {@link getAssertion} for navigator.credentials.create().
  */
 export async function createCredential(creationOptionsJson: string): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const options: any = JSON.parse(creationOptionsJson).publicKey;
-  options.challenge = b64uToBuf(options.challenge);
-  options.user = { ...options.user, id: b64uToBuf(options.user.id) };
-  if (options.excludeCredentials) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    options.excludeCredentials = options.excludeCredentials.map((c: any) => ({
-      ...c,
-      id: b64uToBuf(c.id),
-    }));
-  }
+  const parsed: CreationOptionsJSON = JSON.parse(creationOptionsJson).publicKey;
+  // Build a NEW options object with converted ArrayBuffer fields rather than mutating the parsed
+  // JSON in place. Unknown pass-through fields are preserved by the spread.
+  const options: PublicKeyCredentialCreationOptions = {
+    ...(parsed as unknown as PublicKeyCredentialCreationOptions),
+    challenge: b64uToBuf(parsed.challenge),
+    user: { ...parsed.user, id: b64uToBuf(parsed.user.id) } as PublicKeyCredentialUserEntity,
+    ...(parsed.excludeCredentials
+      ? { excludeCredentials: parsed.excludeCredentials.map(toCredentialDescriptor) }
+      : {}),
+  };
 
   const cred = (await navigator.credentials.create({ publicKey: options })) as PublicKeyCredential;
   const response = cred.response as AuthenticatorAttestationResponse;

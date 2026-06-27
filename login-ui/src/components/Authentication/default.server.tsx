@@ -19,6 +19,9 @@ jahiaComponent(
   },
   (props: Props, { renderContext }) => {
     const apiRoot = buildEndpointUrl("/modules/graphql");
+    // Meaningful logo alt text (WCAG 1.1.1): prefer an author-supplied value, then the site title,
+    // never a generic "Logo".
+    const logoAlt = props.logoAlt || renderContext.getSite().getTitle();
     const content: Props = {
       contextPath: renderContext.getRequest().getContextPath(),
       siteKey: renderContext.getSite().getSiteKey(),
@@ -42,7 +45,7 @@ jahiaComponent(
                 ? buildNodeUrl(props.logo)
                 : buildModuleFileUrl("static/default-logo.svg")
             }
-            alt="Logo"
+            alt={logoAlt}
           />
         </header>
         <main className={classes.main}>

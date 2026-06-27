@@ -6,12 +6,11 @@ import graphql.annotations.annotationTypes.GraphQLName;
 import graphql.annotations.annotationTypes.GraphQLNonNull;
 import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
 import org.jahia.modules.graphql.provider.dxm.osgi.annotations.GraphQLOsgiService;
+import org.jahia.modules.upa.mfa.extensions.MfaGraphqlAuth;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnAuditLog;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnCredentialStore;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnSiteSettingsStore;
-import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.usermanager.JahiaUser;
-import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,9 +58,9 @@ public class WebAuthnFactorQuery {
     @GraphQLName("status")
     @GraphQLDescription("WebAuthn registration status + credentials for the currently authenticated user.")
     public WebAuthnStatusResult status() {
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
         // Jahia resolves unauthenticated requests to GUEST, not null.
-        if (user == null || JahiaUserManagerService.isGuest(user)) {
+        JahiaUser user = MfaGraphqlAuth.currentNonGuestUser();
+        if (user == null) {
             throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
         }
         try {

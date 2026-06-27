@@ -9,6 +9,7 @@ import com.yubico.webauthn.RelyingParty;
 import com.yubico.webauthn.StartAssertionOptions;
 import com.yubico.webauthn.StartRegistrationOptions;
 import com.yubico.webauthn.data.AuthenticatorSelectionCriteria;
+import com.yubico.webauthn.data.AuthenticatorTransport;
 import com.yubico.webauthn.data.ByteArray;
 import com.yubico.webauthn.data.PublicKeyCredential;
 import com.yubico.webauthn.data.PublicKeyCredentialCreationOptions;
@@ -136,7 +137,7 @@ public class WebAuthnService {
                 .build());
         List<String> transports = new ArrayList<>();
         result.getKeyId().getTransports().ifPresent(set ->
-                transports.addAll(set.stream().map(t -> t.getId()).collect(Collectors.toList())));
+                transports.addAll(set.stream().map(AuthenticatorTransport::getId).collect(Collectors.toList())));
         String aaguid = result.getAaguid() == null ? null : result.getAaguid().getBase64Url();
         return new RegistrationOutcome(
                 result.getKeyId().getId().getBase64Url(),

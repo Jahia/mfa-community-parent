@@ -1,5 +1,6 @@
 [totpui:authentication] > totpuimix:component, jnt:content
  - logo (weakreference, picker[type='image']) < jmix:image
+ - logoAlt (string) i18n autocreated
  - loginEmailFieldLabel (string) = 'Email' i18n autocreated mandatory
  - loginPasswordFieldLabel (string) = 'Password' i18n autocreated mandatory
  - loginSubmitButtonLabel (string) = 'Login' i18n autocreated mandatory

@@ -5,15 +5,18 @@ import { getAssertion, isWebauthnSupported } from "../../services/webauthnBrowse
 import classes from "./component.module.css";
 import ErrorMessage from "./ErrorMessage.client";
 import type { Props } from "./types";
-import { convertErrorArgsToInterpolation } from "../../services/i18n";
+import { translateError } from "../../services/i18n";
 import { Trans, useTranslation } from "react-i18next";
 import type { MfaError } from "../../services/common";
+import ChangeMethodButton from "./ChangeMethodButton.client";
 
 interface WebauthnVerificationFormProps {
   content: Props;
   onSuccess: (remainingFactors: string[]) => void;
   onEnrollmentRequired: (error: MfaError) => void;
   onFatalError: (error: MfaError) => void;
+  /** When set, render a "Use a different method" control returning to the factor chooser. */
+  onChangeMethod?: () => void;
 }
 
 /**
@@ -66,8 +69,7 @@ export default function WebauthnVerificationForm(props: Readonly<WebauthnVerific
         } else if (result?.fatalError) {
           props.onFatalError(result.error);
         } else {
-          const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-          setError(t(key, interpolation));
+          setError(translateError(t, result.error));
         }
         return undefined;
       })
@@ -91,8 +93,7 @@ export default function WebauthnVerificationForm(props: Readonly<WebauthnVerific
       } else if (result?.fatalError) {
         props.onFatalError(result.error);
       } else {
-        const { key, interpolation } = convertErrorArgsToInterpolation(result.error);
-        setError(t(key, interpolation));
+        setError(translateError(t, result.error));
       }
     } catch (e) {
       // NotAllowedError = user cancelled / timed out.
@@ -147,6 +148,15 @@ export default function WebauthnVerificationForm(props: Readonly<WebauthnVerific
         <p className={classes.helpText} role="alert" data-testid="webauthn-unsupported">
           <Trans i18nKey="factor.webauthn.unsupported" />
         </p>
+      )}
+      {props.onChangeMethod && (
+        <div className={classes.additionalAction}>
+          <ChangeMethodButton
+            onClick={props.onChangeMethod}
+            labelKey="chooser.useDifferentMethod"
+            testId="change-method"
+          />
+        </div>
       )}
     </div>
   );

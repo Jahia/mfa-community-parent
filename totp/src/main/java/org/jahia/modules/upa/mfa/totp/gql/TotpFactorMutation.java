@@ -16,6 +16,8 @@ import org.jahia.modules.upa.mfa.extensions.BackupCodes;
 import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
 import org.jahia.modules.upa.mfa.extensions.MfaForeignFactorDrain;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
+import org.jahia.modules.upa.mfa.extensions.MfaGraphqlAuth;
+import org.jahia.modules.upa.mfa.extensions.MfaPreAuthGuard;
 import org.jahia.modules.upa.mfa.extensions.MfaUrls;
 import org.jahia.modules.upa.mfa.gql.Result;
 import org.jahia.modules.upa.mfa.totp.TotpAuditLog;
@@ -25,10 +27,8 @@ import org.jahia.modules.upa.mfa.totp.TotpPreparationResult;
 import org.jahia.modules.upa.mfa.totp.TotpService;
 import org.jahia.modules.upa.mfa.totp.TotpSiteSettingsStore;
 import org.jahia.modules.upa.mfa.totp.TotpUserStore;
-import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRSessionWrapper;
 import org.jahia.services.usermanager.JahiaUser;
-import org.jahia.services.usermanager.JahiaUserManagerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +61,7 @@ public class TotpFactorMutation {
 
     private static final Logger logger = LoggerFactory.getLogger(TotpFactorMutation.class);
 
+    private static final String ERROR_PREFIX = "factor.totp.";
     private static final String ERROR_NOT_AUTHENTICATED = "factor.totp.not_authenticated";
     private static final String ERROR_ALREADY_ENROLLED = "factor.totp.already_enrolled";
     private static final String ERROR_NOT_ENROLLED = "factor.totp.not_enrolled";
@@ -265,41 +266,15 @@ public class TotpFactorMutation {
     }
 
     /**
-     * The pre-authentication inline-enrollment guard. Enrollment without an authenticated user
-     * is allowed ONLY when ALL of the following hold (fails CLOSED on any doubt):
-     * <ol>
-     *   <li>an initiated, error-free MFA session exists (the password was already validated);</li>
-     *   <li>this factor is part of the global enforcement policy;</li>
-     *   <li>the session user owns NO globally enforced factor — the anti-takeover barrier: a
-     *       caller who only proved the password must never add a factor to an account that
-     *       already has one (that would replace the legitimate owner's second factor).</li>
-     * </ol>
+     * The pre-authentication inline-enrollment guard. Delegates to the shared
+     * {@link MfaPreAuthGuard#requireEnrollmentSubject} (the anti-takeover barrier: a caller who
+     * only proved the password must never add a factor to an account that already owns one).
      *
      * @return the MFA-session user id (the enrollment subject)
      */
     private String requirePreAuthEnrollmentSubject(HttpServletRequest request) {
-        MfaSession session = mfaService.getMfaSession(request);
-        if (session == null || !session.isInitiated() || session.hasError()) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        if (!globalPolicy.isEnforced(FACTOR_TYPE)) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        String userId = session.getContext().getUserId();
-        boolean ownsEnforcedFactor;
-        try {
-            ownsEnforcedFactor = factorDirectory.hasAnyEnforcedFactorConfigured(userId);
-        } catch (RuntimeException e) {
-            logger.error("Could not evaluate factor ownership for user {} (refusing pre-auth enrollment): {}",
-                    userId, e.getMessage());
-            throw new DataFetchingException(ERROR_INTERNAL);
-        }
-        if (ownsEnforcedFactor) {
-            logger.warn("Refused pre-auth TOTP enrollment for user {}: an enforced factor is already configured",
-                    userId);
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        return userId;
+        return MfaPreAuthGuard.requireEnrollmentSubject(request, FACTOR_TYPE, ERROR_PREFIX,
+                mfaService, globalPolicy, factorDirectory);
     }
 
     @GraphQLField
@@ -361,7 +336,8 @@ public class TotpFactorMutation {
         try {
             // SINGLE JCR transaction: persists the secret, enrolled flag, hashed backup codes
             // AND the matched counter so the enrollment code cannot be replayed at login.
-            userStore.saveEnrollment(userId, secretBase32, hashed, matched.get());
+            userStore.saveEnrollment(userId, secretBase32, hashed, matched.orElseThrow(() ->
+                    new DataFetchingException(ERROR_INVALID_CODE)));
             // Enrollment satisfied — clear any running grace window.
             userStore.clearGrace(userId);
         } catch (RepositoryException e) {
@@ -472,35 +448,8 @@ public class TotpFactorMutation {
             @GraphQLName("code") @GraphQLNonNull String code,
             DataFetchingEnvironment environment) {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
+        String userId = consumeSelfServiceCode(code);
 
-        if (!isAcceptableCodeLength(code)) {
-            throw new DataFetchingException(ERROR_INVALID_CODE);
-        }
-
-        JahiaUser user = currentNonGuestUser();
-        if (user == null) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        String userId = user.getName();
-
-        if (rateLimiter.isLockedOut(userId)) {
-            throw new DataFetchingException(ERROR_LOCKED_OUT);
-        }
-
-        TotpUserStore.TotpUserSettings settings;
-        try {
-            settings = userStore.load(userId);
-        } catch (RepositoryException e) {
-            throw new DataFetchingException(ERROR_INTERNAL);
-        }
-        if (!settings.isEnrolled()) {
-            throw new DataFetchingException(ERROR_NOT_ENROLLED);
-        }
-        Long matched = verifyTotpAndConsume(userId, code);
-        if (matched == null) {
-            rateLimiter.recordFailure(userId);
-            throw new DataFetchingException(ERROR_INVALID_CODE);
-        }
         List<String> plaintext = backupCodes.generate();
         List<String> hashed = new ArrayList<>(plaintext.size());
         for (String c : plaintext) {
@@ -525,35 +474,8 @@ public class TotpFactorMutation {
             @GraphQLName("code") @GraphQLNonNull String code,
             DataFetchingEnvironment environment) {
         HttpServletRequest request = ContextUtil.getHttpServletRequest(environment.getGraphQlContext());
+        String userId = consumeSelfServiceCode(code);
 
-        if (!isAcceptableCodeLength(code)) {
-            throw new DataFetchingException(ERROR_INVALID_CODE);
-        }
-
-        JahiaUser user = currentNonGuestUser();
-        if (user == null) {
-            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
-        }
-        String userId = user.getName();
-
-        if (rateLimiter.isLockedOut(userId)) {
-            throw new DataFetchingException(ERROR_LOCKED_OUT);
-        }
-
-        TotpUserStore.TotpUserSettings settings;
-        try {
-            settings = userStore.load(userId);
-        } catch (RepositoryException e) {
-            throw new DataFetchingException(ERROR_INTERNAL);
-        }
-        if (!settings.isEnrolled()) {
-            throw new DataFetchingException(ERROR_NOT_ENROLLED);
-        }
-        Long matched = verifyTotpAndConsume(userId, code);
-        if (matched == null) {
-            rateLimiter.recordFailure(userId);
-            throw new DataFetchingException(ERROR_INVALID_CODE);
-        }
         try {
             userStore.disable(userId);
         } catch (RepositoryException e) {
@@ -572,12 +494,44 @@ public class TotpFactorMutation {
     }
 
     /**
-     * Verify a submitted TOTP code against the user's stored settings AND, on success,
-     * persist the matched counter via {@code updateLastUsedCounter} so the same code cannot
-     * be replayed (against {@code verify} or any other management mutation).
+     * Shared front of the self-service management mutations that mutate an existing enrollment
+     * ({@code regenerateBackupCodes} / {@code disable}): require an authenticated, enrolled, not
+     * rate-limited caller, then verify-and-CONSUME the submitted current code through the
+     * replay-protection chokepoint. On a code miss it records a failure and throws
+     * {@code invalid_code}; on success the caller is responsible for the {@code recordSuccess}
+     * after its own write succeeds (so a failed write does not clear the lockout window).
      *
-     * @return the matched counter on success, or {@code null} on failure / invalid input.
+     * @return the authenticated user id (after a successful code consumption)
      */
+    private String consumeSelfServiceCode(String code) {
+        if (!isAcceptableCodeLength(code)) {
+            throw new DataFetchingException(ERROR_INVALID_CODE);
+        }
+        JahiaUser user = currentNonGuestUser();
+        if (user == null) {
+            throw new DataFetchingException(ERROR_NOT_AUTHENTICATED);
+        }
+        String userId = user.getName();
+        if (rateLimiter.isLockedOut(userId)) {
+            throw new DataFetchingException(ERROR_LOCKED_OUT);
+        }
+        TotpUserStore.TotpUserSettings settings;
+        try {
+            settings = userStore.load(userId);
+        } catch (RepositoryException e) {
+            throw new DataFetchingException(ERROR_INTERNAL);
+        }
+        if (!settings.isEnrolled()) {
+            throw new DataFetchingException(ERROR_NOT_ENROLLED);
+        }
+        Long matched = verifyTotpAndConsume(userId, code);
+        if (matched == null) {
+            rateLimiter.recordFailure(userId);
+            throw new DataFetchingException(ERROR_INVALID_CODE);
+        }
+        return userId;
+    }
+
     private void authorizeReEnroll(JahiaUser user, String userId, boolean forceFlag, String currentCode) {
         if (!forceFlag) {
             throw new DataFetchingException(ERROR_ALREADY_ENROLLED);
@@ -604,6 +558,16 @@ public class TotpFactorMutation {
         rateLimiter.recordSuccess(userId);
     }
 
+    /**
+     * Verify a submitted TOTP code and, on success, atomically consume the matched counter so the
+     * same code cannot be replayed (against {@code verify} or any other management mutation). It
+     * delegates to {@link TotpUserStore#verifyAndConsumeTotp} — the single replay-protection
+     * chokepoint that re-reads, verifies and persists the consumed counter in one JCR transaction;
+     * it does NOT call {@code updateLastUsedCounter}.
+     *
+     * @return the matched counter on success ({@code Optional<Long>.orElse(null)}), or {@code null}
+     *         on failure / invalid input.
+     */
     private Long verifyTotpAndConsume(String userId, String code) {
         if (!isAcceptableCodeLength(code)) {
             return null;
@@ -694,19 +658,11 @@ public class TotpFactorMutation {
     }
 
     private static String currentUserName() {
-        JahiaUser u = JCRSessionFactory.getInstance().getCurrentUser();
-        return u == null ? "<anonymous>" : u.getName();
+        return MfaGraphqlAuth.currentUserName();
     }
 
-    /**
-     * The authenticated (non-guest) caller, or {@code null}. CRITICAL: Jahia resolves
-     * unauthenticated GraphQL requests to the GUEST user, not to {@code null} — treating guest
-     * as authenticated would silently run self-service operations against the literal
-     * {@code guest} account (and bypass the pre-auth enrollment guard).
-     */
     private static JahiaUser currentNonGuestUser() {
-        JahiaUser user = JCRSessionFactory.getInstance().getCurrentUser();
-        return (user == null || JahiaUserManagerService.isGuest(user)) ? null : user;
+        return MfaGraphqlAuth.currentNonGuestUser();
     }
 
     /** Best-effort site key for auditing a self-service event (empty when outside a site flow). */

@@ -1,5 +1,6 @@
 package org.jahia.modules.upa.mfa.totp;
 
+import org.jahia.modules.upa.mfa.extensions.MfaSiteSettingsStoreBase;
 import org.jahia.modules.upa.mfa.extensions.MfaUrls;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionWrapper;
@@ -10,7 +11,6 @@ import org.slf4j.LoggerFactory;
 
 import javax.jcr.PathNotFoundException;
 import javax.jcr.RepositoryException;
-import javax.jcr.Value;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -34,7 +34,7 @@ import java.util.List;
  * Jahia ACL applies.
  */
 @Component(service = TotpSiteSettingsStore.class, immediate = true)
-public class TotpSiteSettingsStore {
+public class TotpSiteSettingsStore extends MfaSiteSettingsStoreBase {
 
     private static final Logger logger = LoggerFactory.getLogger(TotpSiteSettingsStore.class);
 
@@ -43,6 +43,10 @@ public class TotpSiteSettingsStore {
     public static final String PROP_ENABLED_GROUPS = "upaTotp:enabledGroups";
     public static final String PROP_LOGIN_URL = "upaTotp:loginUrl";
     public static final String PROP_LOGOUT_URL = "upaTotp:logoutUrl";
+
+    @Override protected String mixinSiteSettings()  { return MIXIN_SITE_SETTINGS; }
+    @Override protected String propEnabled()        { return PROP_ENABLED; }
+    @Override protected String propEnabledGroups()  { return PROP_ENABLED_GROUPS; }
 
     /** Snapshot of the TOTP settings for a site. */
     public static final class TotpSiteSettings {
@@ -92,9 +96,7 @@ public class TotpSiteSettingsStore {
             if (!siteNode.isNodeType(MIXIN_SITE_SETTINGS)) {
                 return TotpSiteSettings.DISABLED;
             }
-            boolean enabled = siteNode.hasProperty(PROP_ENABLED)
-                    && siteNode.getProperty(PROP_ENABLED).getBoolean();
-            return new TotpSiteSettings(enabled, readGroups(siteNode),
+            return new TotpSiteSettings(readEnabled(siteNode), readGroups(siteNode),
                     readString(siteNode, PROP_LOGIN_URL), readString(siteNode, PROP_LOGOUT_URL));
         });
     }
@@ -106,37 +108,6 @@ public class TotpSiteSettingsStore {
         }
         String value = siteNode.getProperty(property).getString();
         return (value == null || value.trim().isEmpty()) ? null : value.trim();
-    }
-
-    /** Read the non-blank, trimmed group names from the multi-valued enabledGroups property. */
-    private static List<String> readGroups(JCRNodeWrapper siteNode) throws RepositoryException {
-        List<String> groups = new ArrayList<>();
-        if (!siteNode.hasProperty(PROP_ENABLED_GROUPS)) {
-            return groups;
-        }
-        for (Value v : siteNode.getProperty(PROP_ENABLED_GROUPS).getValues()) {
-            String g = v.getString();
-            if (g != null && !g.trim().isEmpty()) {
-                groups.add(g.trim());
-            }
-        }
-        return groups;
-    }
-
-    /**
-     * Whether at least one site currently has TOTP {@code enabled}. Used by the
-     * {@code /cms/login} gate filter for requests that carry no site context: while the global
-     * policy enforces this factor, any site with it enabled makes the legacy login endpoint a
-     * potential MFA bypass. (Enforcement itself is global — see the extensions MfaGlobalPolicy.)
-     */
-    public boolean isAnySiteEnabled() throws RepositoryException {
-        return Boolean.TRUE.equals(JCRTemplate.getInstance().doExecuteWithSystemSession(session -> {
-            javax.jcr.query.Query query = session.getWorkspace().getQueryManager().createQuery(
-                    "SELECT * FROM [" + MIXIN_SITE_SETTINGS + "] WHERE [" + PROP_ENABLED + "] = true",
-                    javax.jcr.query.Query.JCR_SQL2);
-            query.setLimit(1);
-            return query.execute().getNodes().hasNext();
-        }));
     }
 
     /**
@@ -157,17 +128,7 @@ public class TotpSiteSettingsStore {
         String cleanLoginUrl = MfaUrls.validateSiteRelativeUrl(settings.getLoginUrl());
         String cleanLogoutUrl = MfaUrls.validateSiteRelativeUrl(settings.getLogoutUrl());
         JCRNodeWrapper siteNode = session.getNode("/sites/" + siteKey);
-        if (!siteNode.isNodeType(MIXIN_SITE_SETTINGS)) {
-            siteNode.addMixin(MIXIN_SITE_SETTINGS);
-        }
-        siteNode.setProperty(PROP_ENABLED, settings.isEnabled());
-        List<String> cleaned = new ArrayList<>();
-        for (String g : settings.getEnabledGroups()) {
-            if (g != null && !g.trim().isEmpty()) {
-                cleaned.add(g.trim());
-            }
-        }
-        siteNode.setProperty(PROP_ENABLED_GROUPS, cleaned.toArray(new String[0]));
+        List<String> cleaned = writeEnabledAndGroups(siteNode, settings.isEnabled(), settings.getEnabledGroups());
         setOrRemove(siteNode, PROP_LOGIN_URL, cleanLoginUrl);
         setOrRemove(siteNode, PROP_LOGOUT_URL, cleanLogoutUrl);
         session.save();

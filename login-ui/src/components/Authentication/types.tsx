@@ -11,6 +11,8 @@ export interface Props {
    */
   siteKey?: string;
   logo?: JCRNodeWrapper;
+  /** Author-supplied alt text for the logo; falls back to the site title server-side. */
+  logoAlt?: string;
   loginEmailFieldLabel: string;
   loginPasswordFieldLabel: string;
   loginSubmitButtonLabel: string;

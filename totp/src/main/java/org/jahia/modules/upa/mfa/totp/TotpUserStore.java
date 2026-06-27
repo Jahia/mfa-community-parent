@@ -213,7 +213,9 @@ public class TotpUserStore {
                 return Optional.<Long>empty();
             }
             // Persist the consumed counter atomically before returning success.
-            user.setProperty(PROP_LAST_USED_COUNTER, matched.get());
+            long matchedCounter = matched.orElseThrow(() ->
+                    new IllegalStateException("matched counter vanished after presence check"));
+            user.setProperty(PROP_LAST_USED_COUNTER, matchedCounter);
             // Lazy migration: re-encrypt a legacy plaintext secret on a successful verify.
             if (!secretCipher.isEncrypted(storedSecret)) {
                 user.setProperty(PROP_SECRET, secretCipher.encrypt(secretBase32));
@@ -374,7 +376,9 @@ public class TotpUserStore {
             if (!matched.isPresent()) {
                 return false;
             }
-            hashes.remove(matched.get().intValue());
+            int matchedIndex = matched.orElseThrow(() ->
+                    new IllegalStateException("matched index vanished after presence check"));
+            hashes.remove(matchedIndex);
             user.setProperty(PROP_BACKUP_CODES, hashes.toArray(new String[0]));
             systemSession.save();
             logger.info("Backup code consumed for user {} (remaining: {})", user.getName(), hashes.size());

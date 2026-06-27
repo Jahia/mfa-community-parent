@@ -79,9 +79,9 @@ shipped by `totp/src/main/resources/META-INF/configurations/org.jahia.modules.to
 > `org.jahia.modules.totp` to `org.jahia.modules.mfa.extensions`. Existing deployments must
 > copy any customized values to the new PID.
 
-Each module also ships an OSGi authorization configuration granting its GraphQL types to all
+Each module ships an OSGi authorization configuration granting its GraphQL mutation/query types and result types to all
 callers (the actual authentication / rate limiting happens at the resolver level), e.g.
-`totp/src/main/resources/META-INF/configurations/org.jahia.bundles.api.authorization-mfa-factors-totp.yml`.
+`totp/src/main/resources/META-INF/configurations/org.jahia.bundles.api.authorization-mfa-factors-totp.yml` for the TOTP mutations, queries, and their result DTO types.
 
 `MfaLoginLogoutProvider` (in the extensions bundle) implements Jahia's `LoginUrlProvider` /
 `LogoutUrlProvider` SPI. URLs are resolved **per request** with this precedence: a **per-site**
@@ -254,16 +254,58 @@ Configuration (Karaf PID `org.jahia.modules.webauthn`):
 
 ## GraphQL API
 
-All mutations are exposed under `Mutation.upa.mfa.factors.totp`:
+### TOTP mutations
+
+All TOTP mutations are exposed under `Mutation.upa.mfa.factors.totp`:
 
 | Mutation | Arguments | Returns |
 | --- | --- | --- |
-| `enroll` | `force: Boolean`, `currentCode: String` | `MfaTotpEnrollResult` (`secretBase32`, `otpauthUri`, `issuer`, `accountName`) |
+| `enroll` | `force: Boolean`, `currentCode: String` | `MfaTotpEnrollResult` (`secret`, `otpauthUri`, `issuer`, `accountName`) |
 | `confirmEnroll` | `code: String!` | `MfaTotpConfirmEnrollResult` (`backupCodes: [String]`) |
 | `prepare` | &mdash; | `MfaTotpPreparation` |
 | `verify` | `code: String!` | `Result` |
 | `regenerateBackupCodes` | `code: String!` | `MfaTotpBackupCodesResult` (`backupCodes: [String]`) |
 | `disable` | `code: String!` | `Result` |
+| `setSiteSettings` | `siteKey: String!`, `enabled: Boolean!`, `enabledGroups: [String]`, `loginUrl: String`, `logoutUrl: String` | `TotpSiteSettingsResult` |
+| `resetUserMfa` | `userId: String!`, `siteKey: String!` | `Boolean` |
+
+### TOTP queries
+
+TOTP queries are exposed under `Query.upa.mfa.factors.totp`:
+
+| Query | Arguments | Returns |
+| --- | --- | --- |
+| `status` | &mdash; | `TotpStatusResult` (`enrolled: Boolean`, `backupCodesRemaining: Int`) |
+| `siteSettings` | `siteKey: String!` | `TotpSiteSettingsResult` |
+| `auditEvents` | `siteKey: String!`, `limit: Int` | `[TotpAuditEventResult]` |
+| `enrollmentReport` | `siteKey: String!`, `limit: Int` | `TotpEnrollmentReportResult` |
+
+### WebAuthn mutations
+
+WebAuthn mutations are exposed under `Mutation.upa.mfa.factors.webauthn`:
+
+| Mutation | Arguments | Returns |
+| --- | --- | --- |
+| `prepare` | &mdash; | `WebAuthnPreparation` (assertion options JSON, skipped flag) |
+| `verify` | `assertion: String!` | `Result` |
+| `startRegistration` | &mdash; | `WebAuthnRegistrationOptionsResult` (creation options JSON) |
+| `finishRegistration` | `response: String!`, `nickname: String` | `WebAuthnStatusResult` |
+| `renameCredential` | `credentialId: String!`, `nickname: String!` | `Boolean` |
+| `deleteCredential` | `credentialId: String!` | `Boolean` |
+| `setSiteSettings` | `siteKey: String!`, `enabled: Boolean!`, `enabledGroups: [String]` | `WebAuthnSiteSettingsResult` |
+| `resetUserWebauthn` | `userId: String!`, `siteKey: String!` | `Boolean` |
+
+### WebAuthn queries
+
+WebAuthn queries are exposed under `Query.upa.mfa.factors.webauthn`:
+
+| Query | Arguments | Returns |
+| --- | --- | --- |
+| `supported` | &mdash; | `Boolean` |
+| `status` | &mdash; | `WebAuthnStatusResult` (credentials list) |
+| `siteSettings` | `siteKey: String!` | `WebAuthnSiteSettingsResult` |
+| `auditEvents` | `siteKey: String!`, `limit: Int` | `[WebAuthnAuditEventResult]` |
+| `enrollmentReport` | `siteKey: String!`, `limit: Int` | `WebAuthnEnrollmentReportResult` |
 
 Example &mdash; enroll an authenticated user:
 
@@ -274,7 +316,7 @@ mutation {
       factors {
         totp {
           enroll {
-            secretBase32
+            secret
             otpauthUri
             issuer
             accountName

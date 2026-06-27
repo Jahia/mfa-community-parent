@@ -8,7 +8,9 @@ export default function () {
         callback: async () => {
             await i18next.loadNamespaces('mfa-factors-totp');
             register();
-            console.debug('%c mfa-factors-totp: activation completed', 'color: #006633');
+            if (process.env.NODE_ENV !== 'production') {
+                console.debug('%c mfa-factors-totp: activation completed', 'color: #006633');
+            }
         }
     });
 }
