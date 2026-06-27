@@ -12,7 +12,8 @@ interface ChangeMethodButtonProps {
 /**
  * Persistent "go back to the chooser" control rendered on a verification or enrollment form when
  * the user had more than one method to choose from. Without it a wrong-factor pick or an
- * unavailable device is a dead end. Styled as the existing underline link control (.toggleMode).
+ * unavailable device is a dead end. Rendered as an outlined secondary button so it reads as a
+ * clear action while staying subordinate to the form's primary submit.
  */
 export default function ChangeMethodButton({
   onClick,
@@ -21,7 +22,7 @@ export default function ChangeMethodButton({
 }: Readonly<ChangeMethodButtonProps>) {
   const { t } = useTranslation();
   return (
-    <button type="button" className={classes.toggleMode} data-testid={testId} onClick={onClick}>
+    <button type="button" className={classes.secondaryButton} data-testid={testId} onClick={onClick}>
       {t(labelKey)}
     </button>
   );

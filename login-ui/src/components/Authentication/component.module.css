@@ -132,8 +132,24 @@
   color: #fff;
 }
 
+/* Secondary action rendered as an outlined button (e.g. "Choose a different setup method"):
+   clearly a button, but visually subordinate to the primary .submitButton CTA. Blue on white =
+   8.05:1 (AAA) for both the label and the border. */
+.secondaryButton {
+  cursor: pointer;
+  padding: 0.5rem 1.5rem;
+  border-radius: 4px;
+  border: 1px solid #00538b;
+  background: #fff;
+  color: #00538b;
+  font-weight: 600;
+  /* Pointer target ≥44 CSS px (WCAG 2.5.5 AAA). */
+  min-height: 44px;
+}
+
 /* Visible keyboard focus indicator (WCAG 2.4.7 / 2.4.13: ≥2px, ≥3:1 against adjacent). */
 .submitButton:focus-visible,
+.secondaryButton:focus-visible,
 .toggleMode:focus-visible,
 .formField input:focus-visible,
 .otpInput:focus-visible,
