@@ -84,6 +84,7 @@ const SiteSettings = () => {
                 <div style={{padding: '24px', maxWidth: 760}}>
                     {loading ? <Loader/> : (
                         <>
+                            <style>{'.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}'}</style>
                             <Typography style={{marginBottom: 24, display: 'block'}}>
                                 {t('siteSettings.description')}
                             </Typography>
@@ -144,6 +145,7 @@ const CheckboxField = ({id, testid, checked, disabled, label, help, onChange}) =
                disabled={disabled}
                data-testid={testid}
                aria-describedby={`${id}-help`}
+               className="mfa-admin-input"
                style={{marginTop: 4, cursor: disabled ? 'not-allowed' : 'pointer'}}
                onChange={e => onChange(e.target.checked)}/>
         <div>
@@ -167,6 +169,7 @@ const TextField = ({id, testid, type, value, disabled, placeholder, label, help,
                max={max}
                data-testid={testid}
                aria-describedby={`${id}-help`}
+               className="mfa-admin-input"
                style={{padding: '0.4rem', minWidth: 280, minHeight: 44, boxSizing: 'border-box',
                        borderRadius: 4, border: '1px solid #767676',
                        cursor: disabled ? 'not-allowed' : 'auto'}}

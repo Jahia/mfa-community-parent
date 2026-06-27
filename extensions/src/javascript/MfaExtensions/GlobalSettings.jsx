@@ -108,6 +108,13 @@ const GlobalSettings = () => {
     ];
 
     return (
+        <>
+        {/* WCAG 2.2 SC 2.4.11 (Focus Appearance) + SC 1.4.11 (Non-text Contrast >= 3:1).
+            #00538b on white yields ~7:1 contrast (AAA). The :focus-visible selector limits
+            the ring to keyboard/switch navigation so mouse users are unaffected.
+            Injected as a plain <style> element - this module uses inline styles by design
+            and has no css-loader in its webpack config. */}
+        <style>{'.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}'}</style>
         <ContentLayout
             paper
             header={(
@@ -225,6 +232,7 @@ const GlobalSettings = () => {
                 </div>
             )}
         />
+        </>
     );
 };
 
@@ -239,6 +247,7 @@ const CheckboxField = ({id, testid, checked, disabled, label, help, onChange}) =
                disabled={disabled}
                data-testid={testid}
                aria-describedby={`${id}-help`}
+               className="mfa-admin-input"
                style={{marginTop: 4, cursor: disabled ? 'not-allowed' : 'pointer'}}
                onChange={e => onChange(e.target.checked)}/>
         <div>
@@ -262,6 +271,7 @@ const TextField = ({id, testid, type, value, disabled, placeholder, label, help,
                max={max}
                data-testid={testid}
                aria-describedby={`${id}-help`}
+               className="mfa-admin-input"
                style={{padding: '0.4rem', minWidth: 280, minHeight: 44, boxSizing: 'border-box',
                        borderRadius: 4, border: '1px solid #767676',
                        cursor: disabled ? 'not-allowed' : 'auto'}}

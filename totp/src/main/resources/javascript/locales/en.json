@@ -37,7 +37,8 @@
     "copy": "Copy",
     "copied": "Backup codes copied to clipboard.",
     "download": "Download",
-    "close": "I have saved them"
+    "close": "I have saved them",
+    "acknowledge": "I have saved my backup codes."
   },
   "errors": {
     "invalidCode": "Invalid code. Double-check the digits and try again.",
@@ -70,6 +71,7 @@
       "confirmText": "This will immediately clear {{userId}}'s authenticator enrollment and all backup codes. They will sign in without a second factor until they re-enrol. This cannot be undone.",
       "confirmButton": "Yes, reset this user's MFA",
       "cancelButton": "Cancel",
+      "resetting": "Resetting…",
       "done": "The user's TOTP enrollment has been reset."
     },
     "audit": {
@@ -78,6 +80,9 @@
       "loadReport": "Enrollment report",
       "reportSummary": "{{enrolled}} of {{total}} users are enrolled in TOTP.",
       "notEnrolled": "Not enrolled",
+      "noEvents": "No audit events found for this site.",
+      "noReport": "No enrollment data found for this site.",
+      "loadError": "Could not load the data. Please try again.",
       "colTime": "Time (UTC)",
       "colEvent": "Event",
       "colOutcome": "Outcome",

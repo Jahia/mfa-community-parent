@@ -150,13 +150,15 @@ export default function EmailCodeVerificationForm(
           <button
             type="submit"
             disabled={code.length !== CODE_LENGTH || submitting}
+            aria-busy={submitting}
+            aria-describedby="emailCode-error"
             data-testid="email-verification-submit"
             className={classes.submitButton}
           >
             <Trans i18nKey="factor.email_code.verify" />
           </button>
         </div>
-        <hr />
+        <hr aria-hidden="true" />
         <div className={classes.additionalAction}>
           <button
             type="button"

@@ -108,13 +108,14 @@ export default function LoginForm(props: Readonly<LoginFormProps>) {
         <button
           type="submit"
           disabled={inProgress}
+          aria-busy={inProgress}
           data-testid="login-submit"
           className={classes.submitButton}
         >
           {props.content.loginSubmitButtonLabel}
         </button>
       </form>
-      <hr />
+      <hr aria-hidden="true" />
       {props.content.loginAdditionalActionHtml && (
         <div
           data-testid="additional-action"

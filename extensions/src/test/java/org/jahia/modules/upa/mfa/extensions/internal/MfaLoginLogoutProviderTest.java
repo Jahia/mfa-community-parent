@@ -10,10 +10,12 @@ import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.Map;
 
+import static org.jahia.modules.upa.mfa.extensions.MfaUrls.isSafeGlobalRedirectUrl;
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginLogoutProvider.appendRedirect;
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginLogoutProvider.chooseUrl;
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginLogoutProvider.redirectTarget;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -105,6 +107,35 @@ public class MfaLoginLogoutProviderTest {
         assertEquals("/global", chooseUrl("", "  /global  ".trim()));
         assertNull(chooseUrl(null, null));
         assertNull(chooseUrl("  ", "   "));
+    }
+
+    @Test
+    public void chooseUrlAllowsHttpAbsoluteGlobalForExternalSso() {
+        assertEquals("https://sso.example.com/login", chooseUrl(null, "https://sso.example.com/login"));
+        assertEquals("http://sso.example.com/login", chooseUrl(null, "http://sso.example.com/login"));
+    }
+
+    @Test
+    public void chooseUrlRejectsDangerousGlobalSchemeOnTheReadPath() {
+        // A hand-edited global .cfg must not be able to inject javascript:/data:/vbscript:.
+        assertNull(chooseUrl(null, "javascript:alert(1)"));
+        assertNull(chooseUrl(null, "data:text/html;base64,x"));
+        assertNull(chooseUrl(null, "vbscript:msgbox"));
+        // protocol-relative is an open-redirect vector → also rejected.
+        assertNull(chooseUrl(null, "//evil.example"));
+    }
+
+    @Test
+    public void isSafeGlobalUrlClassifies() {
+        assertTrue(isSafeGlobalRedirectUrl("/sites/a/login.html"));
+        assertTrue(isSafeGlobalRedirectUrl("https://sso.example.com/login"));
+        assertTrue(isSafeGlobalRedirectUrl("http://sso.example.com/login"));
+        assertFalse(isSafeGlobalRedirectUrl("javascript:alert(1)"));
+        assertFalse(isSafeGlobalRedirectUrl("DATA:text/html,x"));
+        assertFalse(isSafeGlobalRedirectUrl("//evil.example"));
+        assertFalse("an http(s) URL with no host is not well-formed", isSafeGlobalRedirectUrl("http://"));
+        assertFalse(isSafeGlobalRedirectUrl(null));
+        assertFalse(isSafeGlobalRedirectUrl("   "));
     }
 
     // --- redirect propagation ---------------------------------------------------------------

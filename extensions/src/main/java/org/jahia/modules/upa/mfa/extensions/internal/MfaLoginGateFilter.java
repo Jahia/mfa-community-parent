@@ -3,6 +3,7 @@ package org.jahia.modules.upa.mfa.extensions.internal;
 import org.apache.commons.lang3.StringUtils;
 import org.jahia.bin.filters.AbstractServletFilter;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
+import org.jahia.modules.upa.mfa.extensions.MfaSiteConfigService;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
@@ -71,10 +72,12 @@ import java.util.regex.Pattern;
  * It therefore has no compile-time dependency on any individual factor module.
  * <p>
  * The client IP is taken from the FIRST entry of the {@code X-Forwarded-For} header when
- * present (the original client, by convention), falling back to the socket address.
- * <b>Trust caveat:</b> {@code X-Forwarded-For} is client-spoofable — only enable this gate
- * behind a reverse proxy that overwrites (or sanitizes) the header, otherwise an attacker can
- * impersonate a whitelisted IP with a single forged header.
+ * present (the original client, by convention), falling back to the socket address — but ONLY
+ * when {@code loginGate.trustForwardedFor} is {@code true} (the default, for backward-compat).
+ * <b>Trust caveat:</b> {@code X-Forwarded-For} is client-spoofable — only trust it behind a
+ * reverse proxy that overwrites (or sanitizes) the header, otherwise an attacker can impersonate
+ * a whitelisted IP with a single forged header. Set {@code loginGate.trustForwardedFor=false} to
+ * always use the (spoof-proof) socket address {@code request.getRemoteAddr()} instead.
  * <p>
  * Configuration (PID {@code org.jahia.modules.mfa.extensions}, hot-reloaded via {@code @Modified}):
  * <ul>
@@ -84,6 +87,10 @@ import java.util.regex.Pattern;
  *       enforces enrollment. The automatic mode above runs regardless of this switch.</li>
  *   <li>{@code loginGate.ipWhitelist} — comma-separated IPv4/IPv6 addresses or CIDR blocks
  *       (e.g. {@code 203.0.113.7, 10.0.0.0/8, 2001:db8::/32}); honoured by BOTH modes.</li>
+ *   <li>{@code loginGate.trustForwardedFor} — whether to read the client IP from the
+ *       {@code X-Forwarded-For} header, default {@code true} (backward-compat). Set {@code false}
+ *       when NOT behind a header-overwriting reverse proxy so the spoof-proof socket address is
+ *       always used; otherwise an attacker forges the header to match a whitelisted IP.</li>
  * </ul>
  * <p>
  * Registered as an OSGi service of type {@link AbstractServletFilter}: Jahia's
@@ -101,6 +108,7 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
 
     static final String CONFIG_GATE_ENABLED = "loginGate.enabled";
     static final String CONFIG_GATE_WHITELIST = "loginGate.ipWhitelist";
+    static final String CONFIG_TRUST_FORWARDED_FOR = "loginGate.trustForwardedFor";
 
     private static final String HEADER_X_FORWARDED_FOR = "X-Forwarded-For";
     private static final String PARAM_SITE = "site";
@@ -116,6 +124,8 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
     private static final long ENFORCING_CACHE_MILLIS = 60_000L;
 
     private final AtomicBoolean gateEnabled = new AtomicBoolean(false);
+    /** Trust the {@code X-Forwarded-For} header for the client IP; default {@code true} (back-compat). */
+    private final AtomicBoolean trustForwardedFor = new AtomicBoolean(true);
     private final AtomicReference<List<String>> whitelist = new AtomicReference<>(Collections.emptyList());
     private final AtomicReference<EnforcingCache> enforcingCache = new AtomicReference<>();
 
@@ -127,6 +137,14 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
 
     /** Resolves the configured login URL (per-site → global) for the automatic mode. */
     private MfaLoginLogoutProvider loginLogoutProvider;
+
+    /**
+     * The per-site config service; consulted ONLY for its {@link MfaSiteConfigService#isReady()}
+     * readiness flag so BOTH gating paths (resolved-site and no-site) can fail CLOSED during the
+     * startup window before FileInstall/the eager scan has populated the map. May be {@code null}
+     * in a unit test that does not exercise the readiness path (treated as ready).
+     */
+    private MfaSiteConfigService siteConfigService;
 
     public MfaLoginGateFilter() {
         setFilterName("MfaLoginGateFilter");
@@ -144,6 +162,11 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
     @Reference
     public void setLoginLogoutProvider(MfaLoginLogoutProvider loginLogoutProvider) {
         this.loginLogoutProvider = loginLogoutProvider;
+    }
+
+    @Reference
+    public void setSiteConfigService(MfaSiteConfigService siteConfigService) {
+        this.siteConfigService = siteConfigService;
     }
 
     @Reference(service = MfaSiteProvider.class,
@@ -165,11 +188,28 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
         boolean enabled = properties != null
                 && Boolean.parseBoolean(String.valueOf(properties.get(CONFIG_GATE_ENABLED)));
         List<String> entries = parseWhitelist(properties == null ? null : properties.get(CONFIG_GATE_WHITELIST));
+        boolean trustXff = parseTrustForwardedFor(properties);
         gateEnabled.set(enabled);
         whitelist.set(entries);
+        trustForwardedFor.set(trustXff);
         enforcingCache.set(null); // settings may have changed semantics; re-query on next hit
         logger.info("MFA /cms/login gate {} ({} whitelist entr{})",
                 enabled ? "ENABLED" : "disabled", entries.size(), entries.size() == 1 ? "y" : "ies");
+        if (!entries.isEmpty() && trustXff) {
+            logger.info("MFA /cms/login gate: a whitelist is set and {} is true - the client IP is taken "
+                    + "from X-Forwarded-For, which is client-spoofable. Only keep this enabled behind a "
+                    + "reverse proxy that overwrites the header, or set {}=false.",
+                    CONFIG_TRUST_FORWARDED_FOR, CONFIG_TRUST_FORWARDED_FOR);
+        }
+    }
+
+    /** {@code loginGate.trustForwardedFor}; default {@code true} for backward-compatibility. */
+    private static boolean parseTrustForwardedFor(Map<String, Object> properties) {
+        if (properties == null) {
+            return true;
+        }
+        Object raw = properties.get(CONFIG_TRUST_FORWARDED_FOR);
+        return raw == null || Boolean.parseBoolean(String.valueOf(raw));
     }
 
     /**
@@ -219,7 +259,7 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
             chain.doFilter(request, response);
             return;
         }
-        String clientIp = resolveClientIp(httpRequest);
+        String clientIp = resolveClientIp(httpRequest, trustForwardedFor.get());
         if (isWhitelisted(clientIp, whitelist.get())) {
             logger.debug("Allowing whitelisted client {} through the /cms/login gate", clientIp);
             chain.doFilter(request, response);
@@ -285,10 +325,21 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
         if (!globalPolicy.isEnforcementActive()) {
             return false;
         }
+        // During the startup window the per-site config map may not be populated yet (FileInstall is
+        // async) and the eager scan may not have run, so BOTH the resolved-site and the no-site
+        // branches below could report "not enforcing" off an empty map and let /cms/login through
+        // password-only — a fail-OPEN bypass. Enforcement is active here, so fail CLOSED until the
+        // config service is ready, regardless of whether the request carries a site context.
+        if (siteConfigService != null && !siteConfigService.isReady()) {
+            logger.debug("MFA /cms/login gate: per-site config not ready yet (startup), failing CLOSED "
+                    + "while enforcement is active");
+            return true;
+        }
         String siteKey = resolveSiteKey(request);
         if (siteKey != null) {
             return anyEnforcesForSite(siteKey);
         }
+        // No resolvable site: the "any site enforcing?" decision over every site.
         return isAnySiteEnforcingCached();
     }
 
@@ -358,14 +409,18 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
     }
 
     /**
-     * The client IP for whitelist matching: the FIRST {@code X-Forwarded-For} entry when the
-     * header is present (the original client, by convention — later entries are proxies),
-     * otherwise the socket address.
+     * The client IP for whitelist matching. When {@code trustForwardedFor} is {@code true} (the
+     * default), the FIRST {@code X-Forwarded-For} entry is used when the header is present (the
+     * original client, by convention — later entries are proxies), otherwise the socket address.
+     * When {@code false}, the (spoof-proof) socket address {@link HttpServletRequest#getRemoteAddr}
+     * is ALWAYS used, ignoring the header — for deployments not behind a header-overwriting proxy.
      */
-    static String resolveClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader(HEADER_X_FORWARDED_FOR);
-        if (StringUtils.isNotBlank(forwarded)) {
-            return forwarded.split(",")[0].trim();
+    static String resolveClientIp(HttpServletRequest request, boolean trustForwardedFor) {
+        if (trustForwardedFor) {
+            String forwarded = request.getHeader(HEADER_X_FORWARDED_FOR);
+            if (StringUtils.isNotBlank(forwarded)) {
+                return forwarded.split(",")[0].trim();
+            }
         }
         return request.getRemoteAddr();
     }

@@ -1,7 +1,7 @@
 import React from 'react';
 import {useTranslation} from 'react-i18next';
 import {useLazyQuery} from '@apollo/client';
-import {Button, Password, Typography} from '@jahia/moonstone';
+import {Button, Loader, Password, Typography} from '@jahia/moonstone';
 import {AuditEventsQuery, EnrollmentReportQuery} from './SiteSettings.gql';
 
 const formatTs = ts => {
@@ -31,6 +31,10 @@ const AuditReportSection = ({siteKey}) => {
 
     const events = (audit.data && audit.data.mfaTotp && audit.data.mfaTotp.auditEvents) || [];
     const reportData = report.data && report.data.mfaTotp && report.data.mfaTotp.enrollmentReport;
+    // A lazy query that has been called and is no longer loading has produced a definitive
+    // result, so an empty payload means "no rows" rather than "not run yet".
+    const auditEmpty = audit.called && !audit.loading && !audit.error && events.length === 0;
+    const reportEmpty = report.called && !report.loading && !report.error && !reportData;
 
     return (
         <section data-testid="audit-report-section" data-factor="totp">
@@ -51,6 +55,37 @@ const AuditReportSection = ({siteKey}) => {
                         label={t('siteSettings.audit.loadReport')}
                         onClick={() => loadReport()}/>
             </div>
+
+            {(audit.loading || report.loading) && (
+                <div data-testid="audit-report-loading" style={{marginBottom: 16}}>
+                    <Loader/>
+                </div>
+            )}
+
+            {audit.error && (
+                <Typography role="alert"
+                            data-testid="audit-error"
+                            style={{color: '#a00000', display: 'block', marginBottom: 16}}
+                >
+                    {t('siteSettings.audit.loadError')}
+                </Typography>
+            )}
+            {report.error && (
+                <Typography role="alert"
+                            data-testid="report-error"
+                            style={{color: '#a00000', display: 'block', marginBottom: 16}}
+                >
+                    {t('siteSettings.audit.loadError')}
+                </Typography>
+            )}
+
+            {reportEmpty && (
+                <Typography data-testid="report-empty"
+                            style={{display: 'block', color: '#555', marginBottom: 16}}
+                >
+                    {t('siteSettings.audit.noReport')}
+                </Typography>
+            )}
 
             {reportData && (
                 <div data-testid="enrollment-report" style={{marginBottom: 24}}>
@@ -95,6 +130,14 @@ const AuditReportSection = ({siteKey}) => {
                         ))}
                     </tbody>
                 </table>
+            )}
+
+            {auditEmpty && (
+                <Typography data-testid="audit-empty"
+                            style={{display: 'block', color: '#555'}}
+                >
+                    {t('siteSettings.audit.noEvents')}
+                </Typography>
             )}
         </section>
     );

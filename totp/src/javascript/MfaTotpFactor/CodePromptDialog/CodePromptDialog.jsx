@@ -58,10 +58,12 @@ const CodePromptDialog = ({
                            inputMode={isBackupCodeAllowed ? 'text' : 'numeric'}
                            placeholder={fieldPlaceholder}
                            aria-label={fieldLabel}
+                           aria-describedby={errorKey ? 'code-prompt-error' : undefined}
                            style={{marginTop: 12}}
                            onChange={e => setCode(sanitize(e.target.value))}/>
                     {errorKey && (
-                        <Typography role="alert"
+                        <Typography id="code-prompt-error"
+                                    role="alert"
                                     style={{marginTop: 12, color: '#a00000', display: 'block'}}
                                     data-testid="code-prompt-error"
                         >

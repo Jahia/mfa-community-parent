@@ -21,6 +21,13 @@ export default function EnrollmentChooser({
 }: Readonly<EnrollmentChooserProps>) {
   const { t } = useTranslation();
 
+  /** Converts a raw factor id (e.g. "email_code") to a readable title-case label. */
+  const humanise = (id: string): string =>
+    id
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+
   const labelFor = (factor: string): string => {
     switch (factor) {
       case "totp":
@@ -28,7 +35,9 @@ export default function EnrollmentChooser({
       case "webauthn":
         return t("enroll.chooser.webauthn");
       default:
-        return factor;
+        // Fall back to a readable humanised label so unknown factor ids never appear
+        // verbatim in the UI (WCAG 3.1.1 / SC 3.1.4 understandable content).
+        return t(`enroll.chooser.${factor}`, { defaultValue: humanise(factor) });
     }
   };
 

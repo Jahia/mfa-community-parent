@@ -5,6 +5,11 @@ import {Button, Typography} from '@jahia/moonstone';
 import {ResetUserMfaMutation} from './SiteSettings.gql';
 import {mapAdminError} from './siteSettings.util';
 
+// Moonstone's CSS reset can drop the native focus ring on raw <input> elements. This module's
+// webpack only loads .scss (no plain .css loader), so the focus-visible rule is injected via a
+// plain <style> element instead of a CSS module. Restores a high-contrast WCAG 2.2 focus ring.
+const ADMIN_INPUT_FOCUS_STYLE = '.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}';
+
 /**
  * Admin recovery: clear a user's TOTP enrollment when they have lost their device AND their
  * backup codes. Distinct from self-service disable (which requires the user's own code).
@@ -39,6 +44,7 @@ const ResetUserSection = ({siteKey}) => {
 
     return (
         <section data-testid="reset-user-section">
+            <style>{ADMIN_INPUT_FOCUS_STYLE}</style>
             <Typography variant="heading" style={{display: 'block', marginBottom: 8}}>
                 {t('siteSettings.reset.title')}
             </Typography>
@@ -51,6 +57,7 @@ const ResetUserSection = ({siteKey}) => {
                        placeholder={t('siteSettings.reset.placeholder')}
                        aria-label={t('siteSettings.reset.placeholder')}
                        data-testid="reset-user-input"
+                       className="mfa-admin-input"
                        style={{padding: '0.4rem', minWidth: 240, minHeight: 44, boxSizing: 'border-box',
                                borderRadius: 4, border: '1px solid #767676'}}
                        onChange={e => {
@@ -79,7 +86,7 @@ const ResetUserSection = ({siteKey}) => {
                         <Button color="danger"
                                 data-testid="reset-user-confirm-btn"
                                 isDisabled={loading}
-                                label={t('siteSettings.reset.confirmButton')}
+                                label={loading ? t('siteSettings.reset.resetting') : t('siteSettings.reset.confirmButton')}
                                 onClick={reset}/>
                         <Button data-testid="reset-user-cancel-btn"
                                 label={t('siteSettings.reset.cancelButton')}

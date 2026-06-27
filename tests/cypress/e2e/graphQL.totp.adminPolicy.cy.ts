@@ -13,7 +13,7 @@
  */
 import {createSite, createUser, deleteSite, deleteUser, jfaker} from '@jahia/cypress';
 import gql from 'graphql-tag';
-import {confirmEnroll, createUserForMFA, enroll, firstErrorMessage, totpCode} from './utils';
+import {confirmEnroll, createUserForMFA, enroll, firstErrorMessage, getSiteConfigFile, totpCode} from './utils';
 
 const SITE_KEY = 'sample-totp-admin';
 
@@ -96,14 +96,32 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
         });
     });
 
-    it('clears per-site login/logout URLs when set blank (falls back to global/default)', () => {
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: `/sites/${SITE_KEY}/login.html`, logoutUrl: ''});
-        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: null, logoutUrl: null});
+    it('clears per-site login/logout URLs when set to empty string (falls back to global/default)', () => {
+        // First set both URLs to non-empty values.
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: `/sites/${SITE_KEY}/login.html`, logoutUrl: `/sites/${SITE_KEY}/logout.html`});
+        // Passing "" (empty string) is the signal to clear - null means "keep existing".
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: '', logoutUrl: ''});
         getSiteSettings(SITE_KEY).then(res => {
             const s = res?.data?.mfaTotp?.siteSettings;
-            expect(s.loginUrl, 'blank login URL should clear to null').to.be.null;
-            expect(s.logoutUrl, 'blank logout URL should clear to null').to.be.null;
+            expect(s.loginUrl, 'empty-string loginUrl should clear to null').to.be.null;
+            expect(s.logoutUrl, 'empty-string logoutUrl should clear to null').to.be.null;
         });
+    });
+
+    it('omitting URL args (null) keeps existing URLs unchanged', () => {
+        const loginUrl = `/sites/${SITE_KEY}/login.html`;
+        const logoutUrl = `/sites/${SITE_KEY}/logout.html`;
+        // Establish known values for both URLs.
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl, logoutUrl});
+        // Toggle enabled with URL args omitted (null) - both URLs must survive independently.
+        setSiteSettings({siteKey: SITE_KEY, enabled: false});
+        getSiteSettings(SITE_KEY).then(res => {
+            const s = res?.data?.mfaTotp?.siteSettings;
+            expect(s.loginUrl, 'loginUrl must survive when URL arg is omitted').to.eq(loginUrl);
+            expect(s.logoutUrl, 'logoutUrl must survive when URL arg is omitted').to.eq(logoutUrl);
+        });
+        // Restore to a clean state for subsequent tests.
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, loginUrl: '', logoutUrl: ''});
     });
 
     it('rejects absolute / protocol-relative / scheme login URLs (open-redirect guard)', () => {
@@ -166,6 +184,21 @@ describe('TOTP per-site policy & admin (GraphQL)', () => {
 
         cy.apolloClient(ROOT);
         deleteUser(usr);
+    });
+
+    it('writes the per-site .cfg file when TOTP is enabled on a site', () => {
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enabledGroups: [], loginUrl: '', logoutUrl: ''});
+        getSiteConfigFile(SITE_KEY).should('not.eq', 'ABSENT');
+        getSiteConfigFile(SITE_KEY).should('include', 'totp.enabled=true');
+    });
+
+    it('deletes the per-site .cfg file when all settings revert to all-default', () => {
+        // Confirm a file exists first.
+        setSiteSettings({siteKey: SITE_KEY, enabled: true, enabledGroups: [], loginUrl: '', logoutUrl: ''});
+        getSiteConfigFile(SITE_KEY).should('not.eq', 'ABSENT');
+        // Disabling the last factor with no URLs is all-default: file must be deleted.
+        setSiteSettings({siteKey: SITE_KEY, enabled: false, enabledGroups: [], loginUrl: '', logoutUrl: ''});
+        getSiteConfigFile(SITE_KEY).should('eq', 'ABSENT');
     });
 
     it('records audit events and produces an enrollment report', () => {

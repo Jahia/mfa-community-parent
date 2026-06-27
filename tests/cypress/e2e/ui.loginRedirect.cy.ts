@@ -85,7 +85,7 @@ describe('Login redirect round trip (custom login URL)', () => {
         const target = `/sites/${SITE_KEY}/home.html`;
         cy.visit(`${getTotpLoginPageURL(SITE_KEY)}?redirect=${encodeURIComponent(target)}`);
 
-        // Inline TOTP enrollment (enforced, no grace): password → QR → code → backup codes.
+        // Inline TOTP enrollment (enforced, no grace): password -> QR -> code -> backup codes.
         cy.get('[data-testid="login-username"]', {timeout: 30000}).type(username);
         cy.get('[data-testid="login-password"]').type(password);
         cy.get('[data-testid="login-submit"]').click();

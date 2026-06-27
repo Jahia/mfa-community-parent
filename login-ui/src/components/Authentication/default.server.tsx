@@ -22,6 +22,18 @@ jahiaComponent(
     // Meaningful logo alt text (WCAG 1.1.1): prefer an author-supplied value, then the site title,
     // never a generic "Logo".
     const logoAlt = props.logoAlt || renderContext.getSite().getTitle();
+    // WCAG 3.1.1: set the language of the page from the main resource locale (the content language
+    // the user is browsing in). The typed Locale has no toLanguageTag(), so build a BCP 47 tag from
+    // its language (+ optional region). Fall back defensively so a missing API never breaks rendering.
+    let locale: string | undefined;
+    try {
+      const resourceLocale = renderContext.getMainResource().getLocale();
+      const language = resourceLocale.getLanguage();
+      const country = resourceLocale.getCountry();
+      locale = language ? (country ? `${language}-${country}` : language) : undefined;
+    } catch {
+      locale = undefined;
+    }
     const content: Props = {
       contextPath: renderContext.getRequest().getContextPath(),
       siteKey: renderContext.getSite().getSiteKey(),
@@ -48,7 +60,7 @@ jahiaComponent(
             alt={logoAlt}
           />
         </header>
-        <main className={classes.main}>
+        <main className={classes.main} lang={locale}>
           {/* Top-level page heading for assistive tech (WCAG 2.4.10): the per-step components
               render h2s, so the page needs an h1. Kept visually hidden to preserve the layout. */}
           <h1 className={classes.srOnly}>{logoAlt}</h1>

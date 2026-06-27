@@ -15,14 +15,22 @@ import java.util.List;
 /**
  * Reads and writes the per-site WebAuthn policy (enabled / enabledGroups), backed by the file OSGi
  * <b>factory</b> configuration in {@link MfaSiteConfigService} (PID
- * {@code org.jahia.modules.mfa.extensions.site}, one {@code .cfg} per site) — no longer the JCR.
+ * {@code org.jahia.modules.mfa.extensions.site}, one {@code .cfg} per site) - no longer the JCR.
  * Mirrors {@code TotpSiteSettingsStore} without the login/logout URL fields (those are
  * factor-agnostic and owned by the shared per-site config). Enforcement (and its grace window) is
- * GLOBAL — see the extensions {@code MfaGlobalPolicy}.
+ * GLOBAL - see the extensions {@code MfaGlobalPolicy}.
+ * <p>
+ * <b>Ownership boundary.</b> This store owns ONLY the WebAuthn slice of the per-site config: the
+ * {@code enabled} flag and {@code enabledGroups} for the {@code webauthn} factor. The per-site
+ * login/logout URLs are factor-agnostic: they are shared across factors and live in the SAME single
+ * {@code .cfg} per site, but they are NOT read or written here - they are owned via the
+ * TOTP/extensions path. Both slices (this factor's enabled/groups and the shared URLs) coexist
+ * atomically in that one file.
  * <p>
  * Writes go through {@link MfaSiteConfigService#save}, which merges only this factor's slice so a
- * concurrent TOTP write (which also carries the shared URLs) is never clobbered. Authorization is
- * enforced in the GraphQL layer ({@code MfaAdminAccess}).
+ * concurrent TOTP write (which also carries the shared URLs) is never clobbered. In particular a
+ * WebAuthn {@code save} never touches the loginUrl/logoutUrl already present in the file.
+ * Authorization is enforced in the GraphQL layer ({@code MfaAdminAccess}).
  */
 @Component(service = WebAuthnSiteSettingsStore.class, immediate = true)
 public class WebAuthnSiteSettingsStore {
