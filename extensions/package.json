@@ -27,7 +27,7 @@
     "@jahia/moonstone": "^2.19.0",
     "@jahia/moonstone-alpha": "^1.0.1",
     "@jahia/ui-extender": "^1.1.0",
-    "graphql": "^15.8.0",
+    "graphql": "^16.14.2",
     "graphql-tag": "^2.12.6",
     "i18next": "^21.6.14",
     "prop-types": "^15.8.1",
