@@ -61,7 +61,7 @@ import java.util.regex.Pattern;
  * <p>
  * The client IP is taken from the FIRST entry of the {@code X-Forwarded-For} header when present
  * (the original client, by convention), falling back to the socket address - but ONLY when
- * {@code loginGate.trustForwardedFor} is {@code true} (the default, for backward-compat).
+ * {@code loginGate.trustForwardedFor} is {@code true} (NOT the default; see SEC-135).
  * <b>Trust caveat:</b> {@code X-Forwarded-For} is client-spoofable - only trust it behind a
  * reverse proxy that overwrites (or sanitizes) the header, otherwise an attacker can impersonate
  * a whitelisted IP with a single forged header. Set {@code loginGate.trustForwardedFor=false} to
@@ -76,7 +76,8 @@ import java.util.regex.Pattern;
  *   <li>{@code loginGate.ipWhitelist} - comma-separated IPv4/IPv6 addresses or CIDR blocks
  *       (e.g. {@code 203.0.113.7, 10.0.0.0/8, 2001:db8::/32}).</li>
  *   <li>{@code loginGate.trustForwardedFor} - whether to read the client IP from the
- *       {@code X-Forwarded-For} header, default {@code true} (backward-compat).</li>
+ *       {@code X-Forwarded-For} header, default {@code false} (spoof-proof socket address; SEC-135).
+ *       Only enable behind a reverse proxy that overwrites the header.</li>
  * </ul>
  * <p>
  * A provider that cannot answer (e.g. an unhealthy repository) throws, and the gate fails
@@ -107,8 +108,12 @@ public class MfaLoginGateDecision {
     private static final long ENFORCING_CACHE_MILLIS = 60_000L;
 
     private final AtomicBoolean gateEnabled = new AtomicBoolean(false);
-    /** Trust the {@code X-Forwarded-For} header for the client IP; default {@code true} (back-compat). */
-    private final AtomicBoolean trustForwardedFor = new AtomicBoolean(true);
+    /**
+     * Trust the {@code X-Forwarded-For} header for the client IP. Default {@code false}: the header is
+     * client-spoofable, so the whitelist would otherwise be bypassable with a single forged header
+     * (SEC-135). Only enable behind a reverse proxy that overwrites {@code X-Forwarded-For}.
+     */
+    private final AtomicBoolean trustForwardedFor = new AtomicBoolean(false);
     private final AtomicReference<List<String>> whitelist = new AtomicReference<>(Collections.emptyList());
     private final AtomicReference<EnforcingCache> enforcingCache = new AtomicReference<>();
 
@@ -178,13 +183,13 @@ public class MfaLoginGateDecision {
         }
     }
 
-    /** {@code loginGate.trustForwardedFor}; default {@code true} for backward-compatibility. */
+    /** {@code loginGate.trustForwardedFor}; default {@code false} (spoof-proof socket address; SEC-135). */
     private static boolean parseTrustForwardedFor(Map<String, Object> properties) {
         if (properties == null) {
-            return true;
+            return false;
         }
         Object raw = properties.get(CONFIG_TRUST_FORWARDED_FOR);
-        return raw == null || Boolean.parseBoolean(String.valueOf(raw));
+        return raw != null && Boolean.parseBoolean(String.valueOf(raw));
     }
 
     /**

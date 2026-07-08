@@ -74,7 +74,7 @@ final class MfaExtensionsConfigSupport {
                 stringValue(properties, KEY_LOGIN_URL),
                 stringValue(properties, KEY_LOGOUT_URL),
                 stringValue(properties, KEY_RESET_NOTIFY_EMAIL),
-                boolValueDefaultTrue(properties, KEY_GATE_TRUST_FORWARDED_FOR),
+                boolValueDefaultFalse(properties, KEY_GATE_TRUST_FORWARDED_FOR),
                 registeredFactors);
     }
 
@@ -207,9 +207,9 @@ final class MfaExtensionsConfigSupport {
         return raw == null ? "" : StringUtils.trimToEmpty(raw.toString());
     }
 
-    /** Boolean read defaulting to {@code true} when the key is absent (matches the gate's parsing). */
-    private static boolean boolValueDefaultTrue(Dictionary<String, Object> properties, String key) {
+    /** Boolean read defaulting to {@code false} when the key is absent (matches the gate's parsing; SEC-135). */
+    private static boolean boolValueDefaultFalse(Dictionary<String, Object> properties, String key) {
         Object raw = value(properties, key);
-        return raw == null || Boolean.parseBoolean(raw.toString());
+        return raw != null && Boolean.parseBoolean(raw.toString());
     }
 }

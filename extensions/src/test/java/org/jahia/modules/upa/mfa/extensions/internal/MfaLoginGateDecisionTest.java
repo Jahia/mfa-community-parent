@@ -263,7 +263,10 @@ public class MfaLoginGateDecisionTest {
         Map<String, Object> props = new HashMap<>();
         props.put("enforcedFactors", "totp");
         props.put(MfaLoginGateDecision.CONFIG_GATE_WHITELIST, "203.0.113.9");
-        decision.activate(props); // trustForwardedFor defaults to true
+        // trustForwardedFor now defaults to false (SEC-135); explicitly opt in to trust the header
+        // (i.e. deployed behind a proxy that overwrites X-Forwarded-For).
+        props.put(MfaLoginGateDecision.CONFIG_TRUST_FORWARDED_FOR, "true");
+        decision.activate(props);
         assertTrue(decision.isClientWhitelisted(requestWith("203.0.113.9", "198.51.100.23")));
     }
 

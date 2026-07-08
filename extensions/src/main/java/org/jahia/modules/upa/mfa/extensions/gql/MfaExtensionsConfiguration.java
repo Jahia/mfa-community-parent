@@ -76,8 +76,8 @@ public class MfaExtensionsConfiguration {
 
     @GraphQLField
     @GraphQLName("loginGateTrustForwardedFor")
-    @GraphQLDescription("Whether the gate reads the client IP from the first X-Forwarded-For entry (default true). "
-            + "Set false when NOT behind a proxy that overwrites the header, so the spoof-proof socket address is used.")
+    @GraphQLDescription("Whether the gate reads the client IP from the first X-Forwarded-For entry (default false; SEC-135). "
+            + "Only enable when behind a reverse proxy that overwrites the header; otherwise the spoof-proof socket address is used.")
     public boolean isLoginGateTrustForwardedFor() {
         return loginGateTrustForwardedFor;
     }
