@@ -101,14 +101,15 @@ public class MfaExtensionsConfigSupportTest {
     }
 
     @Test
-    public void trustForwardedForDefaultsTrueAndPersists() {
-        // Absent key reads as true (matches the gate's backward-compatible default).
-        assertTrue(MfaExtensionsConfigSupport.read(new Hashtable<>(), REGISTERED).isLoginGateTrustForwardedFor());
+    public void trustForwardedForDefaultsFalseAndPersists() {
+        // Absent key reads as false: the spoof-proof socket address is used by default (SEC-135).
+        assertFalse(MfaExtensionsConfigSupport.read(new Hashtable<>(), REGISTERED).isLoginGateTrustForwardedFor());
 
+        // Opt-in still persists and round-trips.
         Dictionary<String, Object> props = new Hashtable<>();
-        MfaExtensionsConfigSupport.applyUpdate(props, trustForwardedForUpdate(false), REGISTERED);
-        assertEquals("false", props.get("loginGate.trustForwardedFor"));
-        assertFalse(MfaExtensionsConfigSupport.read(props, REGISTERED).isLoginGateTrustForwardedFor());
+        MfaExtensionsConfigSupport.applyUpdate(props, trustForwardedForUpdate(true), REGISTERED);
+        assertEquals("true", props.get("loginGate.trustForwardedFor"));
+        assertTrue(MfaExtensionsConfigSupport.read(props, REGISTERED).isLoginGateTrustForwardedFor());
     }
 
     @Test
