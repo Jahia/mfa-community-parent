@@ -73,20 +73,21 @@ describe('Global MFA configuration panel (server administration UI)', () => {
         cy.get('[data-testid="extensions-global-saved"]', {timeout: 15000}).should('be.visible');
     });
 
-    it('toggles trust-X-Forwarded-For (default on) and persists it', () => {
+    it('toggles trust-X-Forwarded-For (default off; SEC-135/GHSA-4v3g-mcmj-83fp) and persists it', () => {
         cy.visit(ADMIN_ROUTE);
-        // Defaults to checked (backward-compatible default true).
-        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]', {timeout: 30000}).should('be.checked');
+        // Defaults to unchecked: the header is client-spoofable, so the socket peer address is
+        // trusted by default (SEC-135). An operator must explicitly opt in.
+        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]', {timeout: 30000}).should('not.be.checked');
 
-        // Turn it off and persist.
-        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]').uncheck();
+        // Turn it on and persist.
+        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]').check();
         cy.get('[data-testid="extensions-global-save-btn"]').click();
         cy.get('[data-testid="extensions-global-saved"]', {timeout: 15000}).should('be.visible');
         cy.reload();
-        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]', {timeout: 30000}).should('not.be.checked');
+        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]', {timeout: 30000}).should('be.checked');
 
-        // Restore the default (on).
-        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]').check();
+        // Restore the secure default (off).
+        cy.get('[data-testid="extensions-gate-trust-xff-toggle"]').uncheck();
         cy.get('[data-testid="extensions-global-save-btn"]').click();
         cy.get('[data-testid="extensions-global-saved"]', {timeout: 15000}).should('be.visible');
     });

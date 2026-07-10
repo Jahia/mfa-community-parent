@@ -2,10 +2,10 @@
 
 if [[ -f .env ]]; then
   source .env
-  export $(cat .env | sed 's/=.*//g'| xargs)
+  export $(grep -v '^\s*#' .env | grep -v '^\s*$' | sed 's/=.*//g'| xargs)
 else
   source .env.example
-  export $(cat .env.example | sed 's/=.*//g'| xargs)
+  export $(grep -v '^\s*#' .env.example | grep -v '^\s*$' | sed 's/=.*//g'| xargs)
 fi
 
 # Pin a unique Compose project name so this harness is isolated from sibling
