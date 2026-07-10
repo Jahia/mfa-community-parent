@@ -29,7 +29,9 @@ import static org.junit.Assert.assertTrue;
  * The shared /cms/login gating decision: whitelist matching (the client IP - first X-Forwarded-For
  * entry when trusted - must match a configured address or CIDR block; never DNS-resolved, mixed
  * IPv4/IPv6 never match), the global-policy &cap; per-site activation gating, the X-Forwarded-For
- * trust switch, the startup fail-CLOSED readiness guard, and login-URL resolution.
+ * trust switch, resilience to Tomcat's {@code RemoteIpValve} rewriting {@code getRemoteAddr()}
+ * from a forged header (GHSA-4v3g-mcmj-83fp), the startup fail-CLOSED readiness guard, and
+ * login-URL resolution.
  */
 public class MfaLoginGateDecisionTest {
 
@@ -268,6 +270,70 @@ public class MfaLoginGateDecisionTest {
         props.put(MfaLoginGateDecision.CONFIG_TRUST_FORWARDED_FOR, "true");
         decision.activate(props);
         assertTrue(decision.isClientWhitelisted(requestWith("203.0.113.9", "198.51.100.23")));
+    }
+
+    // --- Raw socket peer resolution behind Tomcat's RemoteIpValve (GHSA-4v3g-mcmj-83fp) -------
+
+    @Test
+    public void resolveClientIp_prefersRawPeerAttributeOverRewrittenRemoteAddr() {
+        // Simulates RemoteIpValve having already rewritten getRemoteAddr() from a forged XFF
+        // header, while stashing the true (pre-rewrite) peer in its access-log attribute.
+        HttpServletRequest request = requestWithValveRewrite("203.0.113.9", "172.18.0.1");
+        assertEquals("must use the raw peer, not the value the valve derived from XFF",
+                "172.18.0.1", resolveClientIp(request, false));
+    }
+
+    @Test
+    public void resolveClientIp_fallsBackToRemoteAddrWhenNoValveAttribute() {
+        // No RemoteIpValve in the chain (no attribute set): getRemoteAddr() IS the raw peer.
+        HttpServletRequest request = requestWith(null, "198.51.100.23");
+        assertEquals("198.51.100.23", resolveClientIp(request, false));
+    }
+
+    @Test
+    public void isClientWhitelisted_defeatsRemoteIpValveSpoofing() {
+        // Arrange: whitelist a back-office IP; RemoteIpValve trusts the immediate peer
+        // (172.18.0.1, e.g. the Docker gateway) and has rewritten getRemoteAddr() to the
+        // attacker's forged, whitelisted X-Forwarded-For value.
+        MfaLoginGateDecision decision = decisionWith("totp", (String) null, provider("totp", true, true, false));
+        Map<String, Object> props = new HashMap<>();
+        props.put("enforcedFactors", "totp");
+        props.put(MfaLoginGateDecision.CONFIG_GATE_WHITELIST, "203.0.113.9");
+        props.put(MfaLoginGateDecision.CONFIG_TRUST_FORWARDED_FOR, "false");
+        decision.activate(props);
+        HttpServletRequest spoofedRequest = requestWithValveRewrite("203.0.113.9", "172.18.0.1");
+
+        // Act
+        boolean whitelisted = decision.isClientWhitelisted(spoofedRequest);
+
+        // Assert: the true (non-whitelisted) raw peer must be used, not the valve-rewritten value.
+        assertFalse("must not be fooled by RemoteIpValve rewriting getRemoteAddr() from a forged "
+                + "X-Forwarded-For header", whitelisted);
+    }
+
+    /**
+     * A request as seen by application code AFTER Tomcat's {@code RemoteIpValve} has rewritten
+     * {@code getRemoteAddr()} to {@code rewrittenRemoteAddr} (taken from {@code X-Forwarded-For})
+     * and stashed the true {@code rawPeerAddr} in its access-log attribute.
+     */
+    private static HttpServletRequest requestWithValveRewrite(String rewrittenRemoteAddr, String rawPeerAddr) {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                MfaLoginGateDecisionTest.class.getClassLoader(),
+                new Class<?>[]{HttpServletRequest.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "getRemoteAddr":
+                            return rewrittenRemoteAddr;
+                        case "getAttribute":
+                            return "org.apache.catalina.AccessLog.RemoteAddr".equals(args[0]) ? rawPeerAddr : null;
+                        case "getRequestURI":
+                            return "/cms/login";
+                        case "getContextPath":
+                            return "";
+                        default:
+                            return null;
+                    }
+                });
     }
 
     // --- Startup fail-CLOSED while the per-site config service is not ready --------------------

@@ -60,12 +60,22 @@ import java.util.regex.Pattern;
  * therefore has no compile-time dependency on any individual factor module.
  * <p>
  * The client IP is taken from the FIRST entry of the {@code X-Forwarded-For} header when present
- * (the original client, by convention), falling back to the socket address - but ONLY when
- * {@code loginGate.trustForwardedFor} is {@code true} (NOT the default; see SEC-135).
+ * (the original client, by convention), falling back to the raw socket peer address - but ONLY
+ * when {@code loginGate.trustForwardedFor} is {@code true} (NOT the default; see SEC-135).
  * <b>Trust caveat:</b> {@code X-Forwarded-For} is client-spoofable - only trust it behind a
  * reverse proxy that overwrites (or sanitizes) the header, otherwise an attacker can impersonate
  * a whitelisted IP with a single forged header. Set {@code loginGate.trustForwardedFor=false} to
- * always use the (spoof-proof) socket address {@code request.getRemoteAddr()} instead.
+ * always use the raw socket peer address instead.
+ * <p>
+ * <b>{@code request.getRemoteAddr()} is NOT reliable for this even when {@code false}
+ * (GHSA-4v3g-mcmj-83fp):</b> the Jahia EE image ships Tomcat's {@code RemoteIpValve} enabled by
+ * default, and when the immediate TCP peer falls in its (permissive-by-default) {@code
+ * internalProxies} range that valve itself overwrites {@code getRemoteAddr()} with the
+ * {@code X-Forwarded-For} value BEFORE this code ever runs - making the "safe" fallback just as
+ * spoofable as trusting the header directly. {@link #resolveClientIp} therefore reads the
+ * pre-rewrite value the valve stashes in a request attribute for its own access-log use, which the
+ * valve derives from the raw TCP connection and never from a header - see
+ * {@link #resolveRawRemoteAddr}.
  * <p>
  * Configuration (PID {@code org.jahia.modules.mfa.extensions}, hot-reloaded via {@code @Modified}):
  * <ul>
@@ -95,6 +105,15 @@ public class MfaLoginGateDecision {
     static final String CONFIG_TRUST_FORWARDED_FOR = "loginGate.trustForwardedFor";
 
     private static final String HEADER_X_FORWARDED_FOR = "X-Forwarded-For";
+    /**
+     * Request attribute Tomcat's {@code org.apache.catalina.valves.RemoteIpValve} sets to the
+     * PRE-rewrite {@code getRemoteAddr()} (i.e. the true raw TCP peer) before overwriting the
+     * request's remote address from {@code X-Forwarded-For}. Populated from the connection itself,
+     * so - unlike {@code getRemoteAddr()} once that valve is in the chain - it can never be
+     * influenced by a header (GHSA-4v3g-mcmj-83fp). Referenced by name (not the
+     * {@code org.apache.catalina.AccessLog} constant) to avoid a compile dependency on Tomcat.
+     */
+    private static final String ATTR_TOMCAT_ORIGINAL_REMOTE_ADDR = "org.apache.catalina.AccessLog.RemoteAddr";
     private static final String PARAM_SITE = "site";
     private static final String ATTR_SITE_KEY = "siteKey";
 
@@ -346,11 +365,12 @@ public class MfaLoginGateDecision {
     }
 
     /**
-     * The client IP for whitelist matching. When {@code trustForwardedFor} is {@code true} (the
-     * default), the FIRST {@code X-Forwarded-For} entry is used when the header is present (the
-     * original client, by convention - later entries are proxies), otherwise the socket address.
-     * When {@code false}, the (spoof-proof) socket address {@link HttpServletRequest#getRemoteAddr}
-     * is ALWAYS used, ignoring the header - for deployments not behind a header-overwriting proxy.
+     * The client IP for whitelist matching. When {@code trustForwardedFor} is {@code true}, the
+     * FIRST {@code X-Forwarded-For} entry is used when the header is present (the original client,
+     * by convention - later entries are proxies), otherwise the raw socket peer address. When
+     * {@code false} (the default), the header is ALWAYS ignored and the raw socket peer address is
+     * used - see {@link #resolveRawRemoteAddr} for why that is NOT simply
+     * {@link HttpServletRequest#getRemoteAddr()} (GHSA-4v3g-mcmj-83fp).
      */
     static String resolveClientIp(HttpServletRequest request, boolean trustForwardedFor) {
         if (trustForwardedFor) {
@@ -358,6 +378,25 @@ public class MfaLoginGateDecision {
             if (StringUtils.isNotBlank(forwarded)) {
                 return forwarded.split(",")[0].trim();
             }
+        }
+        return resolveRawRemoteAddr(request);
+    }
+
+    /**
+     * The true raw TCP peer address, immune to {@code X-Forwarded-For} regardless of what runs in
+     * front of this code. {@link HttpServletRequest#getRemoteAddr()} is NOT reliable for this: when
+     * Tomcat's {@code RemoteIpValve} is active (the Jahia EE image ships it enabled by default) and
+     * the immediate peer falls in its trusted {@code internalProxies} range, the valve overwrites
+     * {@code getRemoteAddr()} with the (attacker-controlled) {@code X-Forwarded-For} value before
+     * this code ever runs (GHSA-4v3g-mcmj-83fp). That valve stashes the pre-rewrite value - taken
+     * from the connection, never from a header - in {@link #ATTR_TOMCAT_ORIGINAL_REMOTE_ADDR} for
+     * its own access-log use; prefer it whenever present. Absent that valve (attribute unset),
+     * {@code getRemoteAddr()} is already the raw peer.
+     */
+    private static String resolveRawRemoteAddr(HttpServletRequest request) {
+        Object original = request.getAttribute(ATTR_TOMCAT_ORIGINAL_REMOTE_ADDR);
+        if (original instanceof String && StringUtils.isNotBlank((String) original)) {
+            return (String) original;
         }
         return request.getRemoteAddr();
     }

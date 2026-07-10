@@ -67,6 +67,7 @@ Configuration → MFA Community* (server administrators) — or directly in the 
 | `logoutUrl` | _(empty)_ | **Global default** custom sign-out page. |
 | `loginGate.enabled` | `false` | Master switch for the `/cms/login` gate (see below). |
 | `loginGate.ipWhitelist` | _(empty)_ | Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate (e.g. `203.0.113.7, 10.0.0.0/8, 2001:db8::/32`). |
+| `loginGate.trustForwardedFor` | `false` | Whether the whitelist match is taken from the **first `X-Forwarded-For` entry** instead of the raw socket peer address. Only enable behind a reverse proxy that **overwrites** (not merely appends to) the header — see the security note below. |
 
 ### Per-site configuration
 
@@ -242,12 +243,28 @@ Gated, non-whitelisted requests are handled in one of two modes:
 - **explicit hard gate** (`loginGate.enabled=true`): always **HTTP 403**, regardless of any
   configured login URL — the strictest, opt-in behavior.
 
-The client IP is the **first `X-Forwarded-For` entry** when present, else the socket
-address. **Security:** `X-Forwarded-For` is client-spoofable — only rely on the whitelist
-behind a reverse proxy that overwrites the header. The hard gate is **off by default**:
-enabling it with an empty whitelist locks everyone (including platform administrators) out of
-`/cms/login` as soon as one site enforces enrollment — set the whitelist first, then flip
-`loginGate.enabled=true`. JCR errors fail **closed** (request blocked).
+The client IP used for the whitelist match is the raw socket peer address by default; only
+when `loginGate.trustForwardedFor=true` is the **first `X-Forwarded-For` entry** used instead,
+when present. **Security:** `X-Forwarded-For` is client-spoofable — only enable
+`trustForwardedFor` behind a reverse proxy that **overwrites** (not merely appends to) the
+header, otherwise an attacker can impersonate a whitelisted IP with a single forged header.
+
+**`trustForwardedFor=false` alone is not sufficient behind Tomcat's `RemoteIpValve`**
+(the Jahia EE image ships it enabled by default): when the immediate TCP peer falls within
+its `internalProxies` range (the out-of-the-box regex is permissive — it matches typical
+Docker/Kubernetes gateway and private-network addresses), that valve rewrites
+`request.getRemoteAddr()` itself from `X-Forwarded-For` *before* this module ever sees the
+request, making the "safe" default just as spoofable as `trustForwardedFor=true`
+(GHSA-4v3g-mcmj-83fp). This module compensates by preferring the pre-rewrite address the valve
+records for its own access logging, so the whitelist match stays spoof-proof either way — but
+operators should still lock `internalProxies`/`trustedProxies` down to their actual reverse
+proxy's address in `server.xml`, rather than relying on the shipped default, wherever the
+platform's threat model allows it.
+
+The hard gate is **off by default**: enabling it with an empty whitelist locks everyone
+(including platform administrators) out of `/cms/login` as soon as one site enforces
+enrollment — set the whitelist first, then flip `loginGate.enabled=true`. JCR errors fail
+**closed** (request blocked).
 
 Tunable security constants (`DRIFT_WINDOWS`, `TIME_STEP_SECONDS`, `DIGITS`, PBKDF2
 iterations, ...) live in `TotpService` and `BackupCodes`. To change them, fork and rebuild.
