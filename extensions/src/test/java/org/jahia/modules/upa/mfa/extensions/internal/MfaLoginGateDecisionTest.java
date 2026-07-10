@@ -272,41 +272,48 @@ public class MfaLoginGateDecisionTest {
         assertTrue(decision.isClientWhitelisted(requestWith("203.0.113.9", "198.51.100.23")));
     }
 
-    // --- Raw socket peer resolution behind Tomcat's RemoteIpValve (GHSA-4v3g-mcmj-83fp) -------
+    // --- Failing closed behind Tomcat's RemoteIpValve (GHSA-4v3g-mcmj-83fp) -------------------
+    //
+    // Tomcat's RemoteIpValve overwrites getRemoteAddr() IN PLACE from X-Forwarded-For and does NOT
+    // preserve the pre-rewrite address anywhere this code can recover afterwards (verified against
+    // the shipped Tomcat 9 build: it captures getRemoteAddr() into its own access-log attributes
+    // only AFTER the rewrite, so those read back the same spoofed value). The only reliable signal
+    // is the org.apache.tomcat.request.forwarded attribute the valve sets whenever it performed
+    // that rewrite - so resolveClientIp must fail CLOSED (null / never whitelisted) rather than
+    // trust a getRemoteAddr() it cannot verify.
 
     @Test
-    public void resolveClientIp_prefersRawPeerAttributeOverRewrittenRemoteAddr() {
-        // Simulates RemoteIpValve having already rewritten getRemoteAddr() from a forged XFF
-        // header, while stashing the true (pre-rewrite) peer in its access-log attribute.
-        HttpServletRequest request = requestWithValveRewrite("203.0.113.9", "172.18.0.1");
-        assertEquals("must use the raw peer, not the value the valve derived from XFF",
-                "172.18.0.1", resolveClientIp(request, false));
+    public void resolveClientIp_returnsNullWhenAddressWasRewrittenFromForwardedHeader() {
+        // Simulates RemoteIpValve having rewritten getRemoteAddr() to the attacker's forged,
+        // whitelisted X-Forwarded-For value and flagged the rewrite via its own attribute.
+        HttpServletRequest request = requestWithForwardedRewrite("203.0.113.9");
+        assertNull("a rewritten address must never be trusted as the verified socket peer",
+                resolveClientIp(request, false));
     }
 
     @Test
-    public void resolveClientIp_fallsBackToRemoteAddrWhenNoValveAttribute() {
-        // No RemoteIpValve in the chain (no attribute set): getRemoteAddr() IS the raw peer.
+    public void resolveClientIp_usesRemoteAddrWhenNotFlaggedAsForwarded() {
+        // No RemoteIpValve in the chain (attribute unset): getRemoteAddr() IS the raw peer.
         HttpServletRequest request = requestWith(null, "198.51.100.23");
         assertEquals("198.51.100.23", resolveClientIp(request, false));
     }
 
     @Test
     public void isClientWhitelisted_defeatsRemoteIpValveSpoofing() {
-        // Arrange: whitelist a back-office IP; RemoteIpValve trusts the immediate peer
-        // (172.18.0.1, e.g. the Docker gateway) and has rewritten getRemoteAddr() to the
-        // attacker's forged, whitelisted X-Forwarded-For value.
+        // Arrange: whitelist a back-office IP; RemoteIpValve trusted the immediate peer (e.g. the
+        // Docker gateway) and rewrote getRemoteAddr() to the attacker's forged, whitelisted value.
         MfaLoginGateDecision decision = decisionWith("totp", (String) null, provider("totp", true, true, false));
         Map<String, Object> props = new HashMap<>();
         props.put("enforcedFactors", "totp");
         props.put(MfaLoginGateDecision.CONFIG_GATE_WHITELIST, "203.0.113.9");
         props.put(MfaLoginGateDecision.CONFIG_TRUST_FORWARDED_FOR, "false");
         decision.activate(props);
-        HttpServletRequest spoofedRequest = requestWithValveRewrite("203.0.113.9", "172.18.0.1");
+        HttpServletRequest spoofedRequest = requestWithForwardedRewrite("203.0.113.9");
 
         // Act
         boolean whitelisted = decision.isClientWhitelisted(spoofedRequest);
 
-        // Assert: the true (non-whitelisted) raw peer must be used, not the valve-rewritten value.
+        // Assert: a rewritten address must fail closed, not be trusted as a whitelist match.
         assertFalse("must not be fooled by RemoteIpValve rewriting getRemoteAddr() from a forged "
                 + "X-Forwarded-For header", whitelisted);
     }
@@ -314,9 +321,9 @@ public class MfaLoginGateDecisionTest {
     /**
      * A request as seen by application code AFTER Tomcat's {@code RemoteIpValve} has rewritten
      * {@code getRemoteAddr()} to {@code rewrittenRemoteAddr} (taken from {@code X-Forwarded-For})
-     * and stashed the true {@code rawPeerAddr} in its access-log attribute.
+     * and set {@code org.apache.tomcat.request.forwarded=true} to flag that it did so.
      */
-    private static HttpServletRequest requestWithValveRewrite(String rewrittenRemoteAddr, String rawPeerAddr) {
+    private static HttpServletRequest requestWithForwardedRewrite(String rewrittenRemoteAddr) {
         return (HttpServletRequest) Proxy.newProxyInstance(
                 MfaLoginGateDecisionTest.class.getClassLoader(),
                 new Class<?>[]{HttpServletRequest.class},
@@ -325,7 +332,7 @@ public class MfaLoginGateDecisionTest {
                         case "getRemoteAddr":
                             return rewrittenRemoteAddr;
                         case "getAttribute":
-                            return "org.apache.catalina.AccessLog.RemoteAddr".equals(args[0]) ? rawPeerAddr : null;
+                            return "org.apache.tomcat.request.forwarded".equals(args[0]) ? Boolean.TRUE : null;
                         case "getRequestURI":
                             return "/cms/login";
                         case "getContextPath":

@@ -17,8 +17,10 @@
  * =false, SEC-135); ONLY when an operator explicitly opts in is the FIRST X-Forwarded-For entry
  * used instead. See the "X-Forwarded-For trust" section below for GHSA-4v3g-mcmj-83fp: even with
  * the false default, request.getRemoteAddr() alone is not spoof-proof behind Tomcat's
- * RemoteIpValve (which this suite's own Jahia image ships enabled by default), so the gate must
- * resolve the true raw peer rather than trust that method blindly.
+ * RemoteIpValve (which this suite's own Jahia image ships enabled by default) - that valve
+ * overwrites getRemoteAddr() in place and does not preserve the pre-rewrite address anywhere
+ * recoverable, so the gate instead detects the rewrite itself and FAILS CLOSED (never
+ * whitelisted) rather than trusting a value it cannot verify.
  *
  * This spec drives enforcement through the TOTP factor (a convenient enforcing factor), but
  * the gate itself is factor-agnostic. The gate config is flipped through the provisioning API
@@ -126,12 +128,13 @@ describe('/cms/login gate while TOTP enrollment is enforced (HTTP)', () => {
         // docker-network peer address falls inside the valve's (permissive-by-default)
         // internalProxies range — exactly the topology the advisory describes. That means the valve
         // itself rewrites request.getRemoteAddr() from X-Forwarded-For before the gate ever runs,
-        // REGARDLESS of loginGate.trustForwardedFor. So sending a whitelisted X-Forwarded-For here,
-        // with the gate at its default (trustForwardedFor=false), is a direct reproduction of the
-        // bypass: it must still be blocked, proving the gate resolves the true raw peer rather than
-        // trusting request.getRemoteAddr() blindly.
+        // REGARDLESS of loginGate.trustForwardedFor, and does NOT preserve the pre-rewrite address
+        // anywhere recoverable. So sending a whitelisted X-Forwarded-For here, with the gate at its
+        // default (trustForwardedFor=false), is a direct reproduction of the bypass: it must still
+        // be blocked, proving the gate detects the rewrite and FAILS CLOSED rather than trusting a
+        // getRemoteAddr() it cannot verify.
         requestLogin({'X-Forwarded-For': '203.0.113.7'}).then(res => {
-            expect(res.status, 'forged XFF must not spoof the raw peer via RemoteIpValve').to.eq(403);
+            expect(res.status, 'a rewritten address must fail closed, not spoof the whitelist').to.eq(403);
         });
     });
 
@@ -192,8 +195,8 @@ describe('/cms/login gate while TOTP enrollment is enforced (HTTP)', () => {
         // NOT reroute it to the MFA login page - the location may be undefined (no redirect) or the
         // auth-failure target, but never the gate's login URL. Coerce to '' so the matcher is safe
         // on an absent Location header. Requires the explicit trustForwardedFor opt-in: with the
-        // secure default (false) the raw peer - not the header - is what must match the whitelist,
-        // and this docker-network peer is never in the TEST-NET-3 whitelist range.
+        // secure default (false), RemoteIpValve's rewrite of getRemoteAddr() makes the gate fail
+        // closed (never whitelisted) regardless of the header's content.
         setGateConfig(true, '203.0.113.0/24', true);
         postLogin({'X-Forwarded-For': '203.0.113.7'}, {redirect: '/success.html'}).then(res => {
             expect(res.headers.location || '', 'whitelisted client is processed normally (not gate-rerouted)')

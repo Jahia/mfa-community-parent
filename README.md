@@ -255,11 +255,16 @@ its `internalProxies` range (the out-of-the-box regex is permissive — it match
 Docker/Kubernetes gateway and private-network addresses), that valve rewrites
 `request.getRemoteAddr()` itself from `X-Forwarded-For` *before* this module ever sees the
 request, making the "safe" default just as spoofable as `trustForwardedFor=true`
-(GHSA-4v3g-mcmj-83fp). This module compensates by preferring the pre-rewrite address the valve
-records for its own access logging, so the whitelist match stays spoof-proof either way — but
-operators should still lock `internalProxies`/`trustedProxies` down to their actual reverse
-proxy's address in `server.xml`, rather than relying on the shipped default, wherever the
-platform's threat model allows it.
+(GHSA-4v3g-mcmj-83fp). Unlike some reverse-proxy integrations, `RemoteIpValve` does **not**
+preserve the pre-rewrite address anywhere the application can recover it afterwards, so this
+module cannot "undo" the rewrite — instead it detects that the rewrite happened (via the
+`org.apache.tomcat.request.forwarded` request attribute the valve sets) and, with
+`trustForwardedFor=false`, refuses to treat that address as a verified socket peer: the
+whitelist match **fails closed** (never matches) rather than trusting a value it cannot
+verify. Operators who need the whitelist to work behind a real reverse proxy must both set
+`trustForwardedFor=true` *and* lock `internalProxies`/`trustedProxies` down to that proxy's
+actual address in `server.xml` — the shipped permissive default is what makes the bypass
+possible in the first place.
 
 The hard gate is **off by default**: enabling it with an empty whitelist locks everyone
 (including platform administrators) out of `/cms/login` as soon as one site enforces
