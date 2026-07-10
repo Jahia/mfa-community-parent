@@ -8,11 +8,17 @@
  *
  *  - explicit hard gate (loginGate.enabled, PID org.jahia.modules.mfa.extensions): /cms/login is
  *    rerouted to the configured MFA login page (302), or returns 403 when no distinct login page
- *    is configured - unless the client IP, read from the FIRST X-Forwarded-For entry, matches the
- *    configured whitelist (loginGate.ipWhitelist);
+ *    is configured - unless the client IP matches the configured whitelist (loginGate.ipWhitelist);
  *  - automatic (gate disabled): /cms/login stays reachable ONLY when the operator explicitly
  *    configured it as the login URL; a configured custom login page is served as a 302, and a
  *    missing login URL blocks with 403 (the default screen would silently void the factor).
+ *
+ * The whitelist match uses the raw socket peer address by default (loginGate.trustForwardedFor
+ * =false, SEC-135); ONLY when an operator explicitly opts in is the FIRST X-Forwarded-For entry
+ * used instead. See the "X-Forwarded-For trust" section below for GHSA-4v3g-mcmj-83fp: even with
+ * the false default, request.getRemoteAddr() alone is not spoof-proof behind Tomcat's
+ * RemoteIpValve (which this suite's own Jahia image ships enabled by default), so the gate must
+ * resolve the true raw peer rather than trust that method blindly.
  *
  * This spec drives enforcement through the TOTP factor (a convenient enforcing factor), but
  * the gate itself is factor-agnostic. The gate config is flipped through the provisioning API
@@ -28,7 +34,7 @@ const SITE_KEY = 'sample-totp-gate';
 const ROOT = {username: 'root', password: Cypress.env('SUPER_USER_PASSWORD') as string};
 
 /** Flip the gate config live (ConfigAdmin → @Modified hot-reload, which also clears the gate's cache). */
-const setGateConfig = (enabled: boolean, ipWhitelist: string) => {
+const setGateConfig = (enabled: boolean, ipWhitelist: string, trustForwardedFor = false) => {
     cy.request({
         method: 'POST',
         url: '/modules/api/provisioning',
@@ -36,7 +42,11 @@ const setGateConfig = (enabled: boolean, ipWhitelist: string) => {
         headers: {'Content-Type': 'application/json'},
         body: [{
             editConfiguration: 'org.jahia.modules.mfa.extensions',
-            properties: {'loginGate.enabled': String(enabled), 'loginGate.ipWhitelist': ipWhitelist}
+            properties: {
+                'loginGate.enabled': String(enabled),
+                'loginGate.ipWhitelist': ipWhitelist,
+                'loginGate.trustForwardedFor': String(trustForwardedFor)
+            }
         }]
     });
     // Give ConfigAdmin a moment to dispatch the @Modified event to the filter.
@@ -108,19 +118,41 @@ describe('/cms/login gate while TOTP enrollment is enforced (HTTP)', () => {
         });
     });
 
-    it('allows a whitelisted X-Forwarded-For client through', () => {
+    // --- X-Forwarded-For trust (loginGate.trustForwardedFor, default false; GHSA-4v3g-mcmj-83fp) --
+
+    it('does NOT let a forged X-Forwarded-For bypass the gate by default (GHSA-4v3g-mcmj-83fp)', () => {
+        // The crux of the advisory: this suite's own Jahia container (ghcr.io/jahia/jahia-ee-dev)
+        // runs behind Tomcat's RemoteIpValve, enabled by default, and the cypress container's real
+        // docker-network peer address falls inside the valve's (permissive-by-default)
+        // internalProxies range — exactly the topology the advisory describes. That means the valve
+        // itself rewrites request.getRemoteAddr() from X-Forwarded-For before the gate ever runs,
+        // REGARDLESS of loginGate.trustForwardedFor. So sending a whitelisted X-Forwarded-For here,
+        // with the gate at its default (trustForwardedFor=false), is a direct reproduction of the
+        // bypass: it must still be blocked, proving the gate resolves the true raw peer rather than
+        // trusting request.getRemoteAddr() blindly.
         requestLogin({'X-Forwarded-For': '203.0.113.7'}).then(res => {
-            expect(res.status, 'whitelisted client IP').to.eq(200);
+            expect(res.status, 'forged XFF must not spoof the raw peer via RemoteIpValve').to.eq(403);
         });
     });
 
-    it('uses the FIRST X-Forwarded-For entry (the original client), not the proxies', () => {
+    it('an operator who explicitly opts into trustForwardedFor can allow a whitelisted XFF client', () => {
+        setGateConfig(true, '203.0.113.0/24', true);
+        requestLogin({'X-Forwarded-For': '203.0.113.7'}).then(res => {
+            expect(res.status, 'explicit opt-in: whitelisted client IP from the header').to.eq(200);
+        });
+        // Restore the secure default for the remaining tests in this spec.
+        setGateConfig(true, '203.0.113.0/24');
+    });
+
+    it('opted in, uses the FIRST X-Forwarded-For entry (the original client), not the proxies', () => {
+        setGateConfig(true, '203.0.113.0/24', true);
         requestLogin({'X-Forwarded-For': '203.0.113.50, 198.51.100.9'}).then(res => {
             expect(res.status, 'first entry whitelisted → allowed').to.eq(200);
         });
         requestLogin({'X-Forwarded-For': '198.51.100.9, 203.0.113.50'}).then(res => {
             expect(res.status, 'first entry NOT whitelisted → blocked').to.eq(403);
         });
+        setGateConfig(true, '203.0.113.0/24');
     });
 
     it('gates per-site via the site parameter (uncached path)', () => {
@@ -159,11 +191,15 @@ describe('/cms/login gate while TOTP enrollment is enforced (HTTP)', () => {
         // login). With bogus creds the login still fails downstream, so we only assert the valve did
         // NOT reroute it to the MFA login page - the location may be undefined (no redirect) or the
         // auth-failure target, but never the gate's login URL. Coerce to '' so the matcher is safe
-        // on an absent Location header.
+        // on an absent Location header. Requires the explicit trustForwardedFor opt-in: with the
+        // secure default (false) the raw peer - not the header - is what must match the whitelist,
+        // and this docker-network peer is never in the TEST-NET-3 whitelist range.
+        setGateConfig(true, '203.0.113.0/24', true);
         postLogin({'X-Forwarded-For': '203.0.113.7'}, {redirect: '/success.html'}).then(res => {
             expect(res.headers.location || '', 'whitelisted client is processed normally (not gate-rerouted)')
                 .to.not.contain(`/sites/${SITE_KEY}/login.html`);
         });
+        setGateConfig(true, '203.0.113.0/24');
         setGlobalMfaUrls('', '');
     });
 
