@@ -133,6 +133,16 @@
             <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
+        <!-- Static/JCR mocking for the JCR-bound store tests (report scan cap, no-private-key
+             write). The store hardcodes JCRTemplate.getInstance() and returns concrete
+             JCRUserNode/JCRSessionWrapper, so the fake-subclass pattern cannot reach them;
+             mockito-inline (JUnit-4 compatible) mocks the static + the concrete session/node. -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <version>4.11.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
