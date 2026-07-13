@@ -7,6 +7,7 @@ import org.junit.Test;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.Map;
@@ -130,6 +131,53 @@ public class MfaLoginGateAuthValveTest {
         MfaLoginGateAuthValve valve = new MfaLoginGateAuthValve();
         valve.initialize();
         assertEquals(MfaLoginGateAuthValve.VALVE_ID, valve.getId());
+    }
+
+    @Test
+    public void activate_withoutResolvablePipelineBean_doesNotRegisterAndDeactivateIsSafe() throws Exception {
+        // U2 (activate-path sub-gap): when SpringContextSingleton cannot resolve the 'authPipeline'
+        // bean (here a context whose getBean returns null), activate() must take the no-register
+        // branch (log an error, leave authPipeline null) rather than register a half-wired valve —
+        // during that window the servlet filter is the only cover — and a subsequent deactivate()
+        // must be a safe no-op because nothing was ever registered.
+        Object previousContext = swapSpringContext(contextResolvingBeanTo(null));
+        try {
+            MfaLoginGateAuthValve valve = new MfaLoginGateAuthValve();
+            valve.activate();
+
+            Field pipelineField = MfaLoginGateAuthValve.class.getDeclaredField("authPipeline");
+            pipelineField.setAccessible(true);
+            assertNull("with no resolvable authPipeline bean the valve must NOT register itself",
+                    pipelineField.get(valve));
+
+            valve.deactivate(); // must not throw when the valve was never registered
+            assertNull(pipelineField.get(valve));
+        } finally {
+            swapSpringContext(previousContext);
+        }
+    }
+
+    /** An ApplicationContext whose {@code getBean(String)} returns {@code bean} (everything else null). */
+    private static Object contextResolvingBeanTo(Object bean) {
+        Class<?> appContext;
+        try {
+            appContext = Class.forName("org.springframework.context.ApplicationContext");
+        } catch (ClassNotFoundException e) {
+            throw new AssertionError(e);
+        }
+        return Proxy.newProxyInstance(appContext.getClassLoader(), new Class<?>[]{appContext},
+                (proxy, method, args) -> "getBean".equals(method.getName()) ? bean : null);
+    }
+
+    /** Set the SpringContextSingleton's context field to {@code context}, returning the previous value. */
+    private static Object swapSpringContext(Object context) throws Exception {
+        Class<?> singletonClass = Class.forName("org.jahia.services.SpringContextSingleton");
+        Object singleton = singletonClass.getMethod("getInstance").invoke(null);
+        Field contextField = singletonClass.getDeclaredField("context");
+        contextField.setAccessible(true);
+        Object previous = contextField.get(singleton);
+        contextField.set(singleton, context);
+        return previous;
     }
 
     // --- Helpers --------------------------------------------------------------------------------
