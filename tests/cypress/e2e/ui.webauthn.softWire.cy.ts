@@ -51,14 +51,13 @@ describe('login-ui WebAuthn soft-wire — TOTP-only node (UI)', () => {
         cy.get('[data-testid="mfa-settings-signin"]').should('not.exist');
         cy.get('[data-testid="mfa-totp-enable"], [data-testid="mfa-totp-status"]').should('exist');
 
-        // CHARACTERIZATION (Stage-7 product gap — soft-wire NOT fully implemented):
-        // MfaSettings.client.tsx renders <WebauthnSection/> UNCONDITIONALLY, so on a webauthn-absent
-        // node the section is still present and currently surfaces the "mfaWebauthn undefined"
-        // GraphQL error (plus a non-functional "add passkey" button) instead of being omitted or
-        // mapped to the existing mfa-webauthn-unsupported state. Degradation is SAFE (no hard
-        // failure — asserted above), so this is a robustness/UX gap, not a security hole.
-        // >>> Stage 7: when soft-wiring is implemented, flip the next assertion to `.should('not.exist')`
-        //     (or assert mfa-webauthn-unsupported) and drop this note.
-        cy.get('[data-testid="mfa-webauthn-section"]').should('exist');
+        // REGRESSION (D4 soft-wire implemented in Stage 7): with the webauthn bundle absent,
+        // webauthnStatus() sees the mfaWebauthn GraphQL type missing from the schema (the query fails
+        // validation, so no `data` is returned) and reports "unavailable"; WebauthnSection then
+        // returns null. The section — and therefore its error banner and the non-functional "add
+        // passkey" button — must be omitted entirely, not merely hidden behind an error.
+        cy.get('[data-testid="mfa-webauthn-section"]').should('not.exist');
+        cy.get('[data-testid="mfa-webauthn-error"]').should('not.exist');
+        cy.get('[data-testid="mfa-webauthn-add"]').should('not.exist');
     });
 });

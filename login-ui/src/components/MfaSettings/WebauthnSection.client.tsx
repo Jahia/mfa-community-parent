@@ -36,6 +36,7 @@ export default function WebauthnSection() {
   const [loading, setLoading] = useState(true);
   const [credentials, setCredentials] = useState<WebauthnCredential[]>([]);
   const [platformSupported, setPlatformSupported] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -47,6 +48,9 @@ export default function WebauthnSection() {
       if (res.success) {
         setPlatformSupported(res.supported);
         setCredentials(res.credentials);
+      } else if ("unavailable" in res) {
+        // WebAuthn factor not installed on this node — true soft-wire (D4): hide the whole section.
+        setUnavailable(true);
       } else {
         setError(translateError(t, res.error));
       }
@@ -143,6 +147,13 @@ export default function WebauthnSection() {
         <Trans i18nKey="settings.loading" />
       </div>,
     );
+  }
+
+  // Soft-wire (D4): the mfa-factors-webauthn bundle is absent on this node, so there is no WebAuthn
+  // GraphQL type to talk to. Render nothing at all — the panel degrades to the factors that ARE
+  // installed (e.g. TOTP) instead of showing a broken/erroring passkey section.
+  if (unavailable) {
+    return null;
   }
 
   if (!supported || !platformSupported) {
