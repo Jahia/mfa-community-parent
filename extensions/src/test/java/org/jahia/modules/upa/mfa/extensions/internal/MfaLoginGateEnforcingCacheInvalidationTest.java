@@ -6,49 +6,47 @@ import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
 import org.junit.Test;
 
 import javax.servlet.http.HttpServletRequest;
-import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Hashtable;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * CHARACTERIZATION test for U8 — the bounded (&le;60&nbsp;s) fail-OPEN window in the no-site branch
- * of the {@code /cms/login} gate.
+ * REGRESSION guard for U8 — the (formerly &le;60&nbsp;s) fail-OPEN window in the no-site branch of
+ * the {@code /cms/login} gate is CLOSED.
  * <p>
- * <b>Stage-7 handoff:</b> this test documents the CURRENT behaviour so the fix is verifiable, and
- * it must NOT be "fixed" here. {@link MfaLoginGateDecision#isAnySiteEnforcingCached()} caches the
- * "is any site enforcing?" answer for {@code ENFORCING_CACHE_MILLIS = 60_000}. The cache is
- * invalidated only on provider bind/unbind and the decision's own {@code @Activate}/{@code @Modified}
- * (see {@link MfaLoginGateDecision#bindSiteProvider}, {@link MfaLoginGateDecision#unbindSiteProvider}
- * and {@link MfaLoginGateDecision#activate}) — <b>never</b> when {@link MfaSiteConfigService#updated}
- * toggles a factor on for the first enforcing site. So a no-site {@code /cms/login} POST that cached
- * {@code enforcing=false} keeps authenticating password-only for up to 60&nbsp;s after totp is
- * enabled on the first site.
+ * {@link MfaLoginGateDecision#isAnySiteEnforcingCached()} caches the "is any site enforcing?" answer
+ * for {@code ENFORCING_CACHE_MILLIS = 60_000} so the unauthenticated gate stays cheap. Before the
+ * fix, that cache was invalidated only on provider bind/unbind and the decision's own
+ * {@code @Activate}/{@code @Modified} — never when {@link MfaSiteConfigService#updated} enabled a
+ * factor on the FIRST enforcing site. A no-site {@code /cms/login} POST that had cached
+ * {@code enforcing=false} therefore kept authenticating password-only for up to a minute: a
+ * fail-OPEN in a security gate.
  * <p>
- * The Stage-7 fix wires {@code MfaSiteConfigService.updated()/deleted()/save()} to invalidate the
- * decision's enforcing cache (via an optional/dynamic reverse reference or event callback — a
- * <b>mandatory</b> reverse {@code @Reference} would create an OSGi activation cycle, since the
- * decision already {@code @Reference}s the config service for {@link MfaSiteConfigService#isReady()}).
- * When that ships, the {@code assertFalse} on {@code gatedWithinWindow} below flips to
- * {@code assertTrue} and this class can be renamed to a regression guard.
+ * The fix makes {@link MfaSiteConfigService} a source of
+ * {@link org.jahia.modules.upa.mfa.extensions.MfaSiteConfigChangeListener} notifications on every
+ * config change ({@code updated()}/{@code deleted()}/{@code save()}), and
+ * {@link MfaLoginGateDecision} implements that listener to drop its enforcing cache. The reverse edge
+ * (config service → decision) is an <b>optional/dynamic</b> OSGi reference, so it cannot form an
+ * activation cycle with the decision's existing mandatory reference to the config service (for
+ * {@link MfaSiteConfigService#isReady()}). This test wires that listener relationship the same way
+ * DS would ({@link MfaSiteConfigService#bindChangeListener}) and asserts the window is now closed.
  */
-public class MfaLoginGateFailOpenWindowTest {
+public class MfaLoginGateEnforcingCacheInvalidationTest {
 
     private static final String FACTOR = "totp";
 
     /**
-     * The documented &le;60&nbsp;s fail-open: after a no-site gate has cached "not enforcing",
-     * enabling totp on the FIRST site via a FileInstall {@code updated()} replay does NOT close the
-     * window — the no-site gate still reports "not gated". Invalidating the cache (what the Stage-7
-     * fix wires {@code updated()} to do) closes it immediately, proving the cache is the sole cause.
+     * The former &le;60&nbsp;s fail-open is closed: after a no-site gate has cached "not enforcing",
+     * enabling totp on the FIRST site via a FileInstall {@code updated()} replay now invalidates the
+     * decision's enforcing cache through the change-listener callback, so the very next no-site
+     * {@code /cms/login} request — well inside the old 60&nbsp;s window — is gated.
      */
     @Test
-    public void characterization_firstSiteEnableDoesNotCloseTheNoSiteWindow() throws Exception {
+    public void firstSiteEnableClosesTheNoSiteWindowImmediately() throws Exception {
         MfaSiteConfigService configService = activatedEmptyConfigService();
         MfaLoginGateDecision decision = noSiteDecision(configService);
         HttpServletRequest noSiteLogin = loginRequest();
@@ -56,29 +54,44 @@ public class MfaLoginGateFailOpenWindowTest {
         // (1) Prime the no-site cache while no site enforces → caches enforcing=false for 60 s.
         assertFalse("no site enforces yet → not gated", decision.isGated(noSiteLogin));
 
-        // (2) An admin enables totp on the FIRST site (FileInstall delivers the new .cfg).
+        // (2) An admin enables totp on the FIRST site (FileInstall delivers the new .cfg). This fires
+        //     the change-listener callback that invalidates the decision's stale cache.
         configService.updated("org.jahia.modules.mfa.extensions.site-siteA", totpEnabledCfg("siteA"));
         assertTrue("the config service now reports totp enabled on a site",
                 configService.anySiteEnabled(FACTOR));
 
-        // (3) Re-check the no-site gate immediately, well inside the 60 s window.
+        // (3) Re-check the no-site gate immediately, well inside the old 60 s window.
         boolean gatedWithinWindow = decision.isGated(noSiteLogin);
 
-        // CHARACTERIZATION of the CURRENT fail-open (Stage-7 flips this to assertTrue after the fix):
-        // updated() never poked the decision's enforcingCache, so the stale "false" still wins.
-        assertFalse("DOCUMENTED FAIL-OPEN (U8): enabling the first enforcing site does not close the "
-                + "no-site gate's <=60s cache window", gatedWithinWindow);
+        // REGRESSION: the fail-open is closed — enabling the first enforcing site invalidates the
+        // no-site gate's cache at once, so no password-only window remains (was assertFalse before U8).
+        assertTrue("U8 REGRESSION: enabling the first enforcing site must close the no-site gate's "
+                + "cache window immediately (no <=60s fail-open)", gatedWithinWindow);
+    }
 
-        // Prove the cache is the sole cause: invalidating it (the fix's effect) closes the window now.
-        invalidateEnforcingCache(decision);
-        assertTrue("once the enforcing cache is invalidated the no-site gate closes immediately",
+    /**
+     * Removing the last enforcing site's config also invalidates the cache promptly, so the gate does
+     * not keep blocking (over-enforcing) off a stale "enforcing" answer — the invalidation is
+     * symmetric with enable.
+     */
+    @Test
+    public void lastSiteDisableClearsTheCachePromptly() throws Exception {
+        MfaSiteConfigService configService = activatedEmptyConfigService();
+        MfaLoginGateDecision decision = noSiteDecision(configService);
+        HttpServletRequest noSiteLogin = loginRequest();
+
+        configService.updated("org.jahia.modules.mfa.extensions.site-siteA", totpEnabledCfg("siteA"));
+        assertTrue("gated once a site enforces", decision.isGated(noSiteLogin));
+
+        configService.deleted("org.jahia.modules.mfa.extensions.site-siteA");
+        assertFalse("no site enforces after the config is removed → not gated (cache was invalidated)",
                 decision.isGated(noSiteLogin));
     }
 
     /**
      * Control: the site-context branch ({@link MfaLoginGateDecision#anyEnforcesForSite}) is
      * <b>uncached</b>, so a request that carries the {@code site} context sees the first-site enable
-     * immediately — no fail-open window there. This bounds the scope of U8 to the no-site branch.
+     * immediately regardless of the listener — this bounds the scope of the cache to the no-site branch.
      */
     @Test
     public void siteContextBranchIsUncachedAndUnaffected() throws Exception {
@@ -90,13 +103,17 @@ public class MfaLoginGateFailOpenWindowTest {
 
         configService.updated("org.jahia.modules.mfa.extensions.site-siteA", totpEnabledCfg("siteA"));
 
-        assertTrue("the site-context branch is uncached → gated immediately, no fail-open window",
+        assertTrue("the site-context branch is uncached → gated immediately",
                 decision.isGated(siteALogin));
     }
 
     // --- helpers --------------------------------------------------------------------------------
 
-    /** A decision enforcing totp globally, backed by a provider that reads live from the config service. */
+    /**
+     * A decision enforcing totp globally, backed by a provider that reads live from the config
+     * service, AND registered as a config-change listener on that service the way DS wires the
+     * optional/dynamic reverse reference at runtime.
+     */
     private static MfaLoginGateDecision noSiteDecision(MfaSiteConfigService configService) {
         MfaLoginGateDecision decision = new MfaLoginGateDecision();
         MfaGlobalPolicy policy = new MfaGlobalPolicy();
@@ -107,6 +124,7 @@ public class MfaLoginGateFailOpenWindowTest {
         decision.setLoginLogoutProvider(new MfaLoginLogoutProvider());
         decision.setSiteConfigService(configService);
         decision.bindSiteProvider(providerBackedBy(configService));
+        configService.bindChangeListener(decision); // the optional/dynamic reverse wire DS performs
         return decision;
     }
 
@@ -161,21 +179,13 @@ public class MfaLoginGateFailOpenWindowTest {
         }
     }
 
-    /** Reflectively null the decision's enforcing cache — the effect the Stage-7 fix will wire. */
-    @SuppressWarnings("unchecked")
-    private static void invalidateEnforcingCache(MfaLoginGateDecision decision) throws Exception {
-        Field f = MfaLoginGateDecision.class.getDeclaredField("enforcingCache");
-        f.setAccessible(true);
-        ((AtomicReference<Object>) f.get(decision)).set(null);
-    }
-
     private static HttpServletRequest loginRequest() {
         return loginRequestForSite(null);
     }
 
     private static HttpServletRequest loginRequestForSite(String siteKey) {
         return (HttpServletRequest) Proxy.newProxyInstance(
-                MfaLoginGateFailOpenWindowTest.class.getClassLoader(),
+                MfaLoginGateEnforcingCacheInvalidationTest.class.getClassLoader(),
                 new Class<?>[]{HttpServletRequest.class},
                 (proxy, method, args) -> {
                     switch (method.getName()) {

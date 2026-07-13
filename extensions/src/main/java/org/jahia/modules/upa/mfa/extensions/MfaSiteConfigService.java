@@ -3,6 +3,9 @@ package org.jahia.modules.upa.mfa.extensions;
 import org.osgi.service.cm.ManagedServiceFactory;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferenceCardinality;
+import org.osgi.service.component.annotations.ReferencePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,6 +27,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
@@ -98,6 +102,19 @@ public class MfaSiteConfigService implements ManagedServiceFactory {
     private final Object writeLock = new Object();
 
     /**
+     * Consumers to notify when the per-site config changes (currently the {@code /cms/login} gate
+     * decision, so it can drop its cached "any site enforcing?" answer — the U8 fail-open fix).
+     * <p>
+     * Bound <b>optionally/dynamically</b> ON PURPOSE: the gate decision already {@code @Reference}s
+     * this service (for {@link #isReady()}), so a mandatory reverse reference would create an OSGi
+     * activation cycle. Optional/dynamic means this service activates with zero listeners and simply
+     * no-ops the notification until a listener appears. Read-heavy on the config-write path is not a
+     * concern (writes are rare) but copy-on-write keeps iteration lock-free and safe against a
+     * concurrent bind.
+     */
+    private final List<MfaSiteConfigChangeListener> changeListeners = new CopyOnWriteArrayList<>();
+
+    /**
      * {@code true} once {@link #activate()} has finished the eager {@code karaf.etc} scan. Until
      * then the in-memory map may be incomplete, so consumers making a fail-open/fail-closed
      * decision (the {@code /cms/login} gate) must treat "not ready" as enforcing.
@@ -107,6 +124,36 @@ public class MfaSiteConfigService implements ManagedServiceFactory {
     @Override
     public String getName() {
         return "MFA per-site configuration";
+    }
+
+    /**
+     * Bind a config-change listener. OPTIONAL + DYNAMIC so this service never depends on a listener
+     * to activate (a mandatory reverse edge would cycle with the gate decision's reference to this
+     * service — see {@link #changeListeners}).
+     */
+    @Reference(cardinality = ReferenceCardinality.MULTIPLE, policy = ReferencePolicy.DYNAMIC)
+    public void bindChangeListener(MfaSiteConfigChangeListener listener) {
+        changeListeners.add(listener);
+    }
+
+    public void unbindChangeListener(MfaSiteConfigChangeListener listener) {
+        changeListeners.remove(listener);
+    }
+
+    /**
+     * Notify every bound listener that the per-site config changed. Called AFTER the {@code writeLock}
+     * is released (listeners must be cheap, but never hold our lock during their callback). A
+     * throwing listener is logged and does not abort the others or the config write itself.
+     */
+    private void notifyChangeListeners() {
+        for (MfaSiteConfigChangeListener listener : changeListeners) {
+            try {
+                listener.onSiteConfigChanged();
+            } catch (RuntimeException e) {
+                logger.warn("MFA per-site config change listener {} failed: {}",
+                        listener.getClass().getName(), e.getMessage());
+            }
+        }
     }
 
     /**
@@ -213,6 +260,9 @@ public class MfaSiteConfigService implements ManagedServiceFactory {
         }
         logger.info("Loaded MFA per-site config for site '{}' (loginUrl={}, factors={})",
                 siteKey, config.getLoginUrl(), config.factors().keySet());
+        // A factor may have just been enabled on the first site: tell the /cms/login gate to drop
+        // its cached "any site enforcing?" answer so it does not fail OPEN for up to a minute (U8).
+        notifyChangeListeners();
     }
 
     @Override
@@ -225,6 +275,8 @@ public class MfaSiteConfigService implements ManagedServiceFactory {
                 logger.info("Removed MFA per-site config for site '{}'", siteKey);
             }
         }
+        // Removing a site's config can change the "any site enforcing?" answer too — invalidate (U8).
+        notifyChangeListeners();
     }
 
     /** The snapshot for a site, or {@link MfaSiteConfig#EMPTY} when nothing is configured. */
@@ -265,6 +317,9 @@ public class MfaSiteConfigService implements ManagedServiceFactory {
                 logger.info("Saved MFA per-site config for site '{}'", siteKey);
             }
         }
+        // Enabling/clearing a factor here changes the enforcement picture: invalidate the gate's
+        // cached "any site enforcing?" answer immediately rather than after the FileInstall replay (U8).
+        notifyChangeListeners();
     }
 
     private MfaSiteConfig parse(Map<String, String> props) {

@@ -2,6 +2,7 @@ package org.jahia.modules.upa.mfa.extensions.internal;
 
 import org.apache.commons.lang3.StringUtils;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
+import org.jahia.modules.upa.mfa.extensions.MfaSiteConfigChangeListener;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteConfigService;
 import org.jahia.modules.upa.mfa.extensions.MfaSiteProvider;
 import org.osgi.service.component.annotations.Activate;
@@ -100,9 +101,9 @@ import java.util.regex.Pattern;
  * <b>closed</b> (block): this is an access-control decision, and if the backend is unhealthy the
  * login could not complete anyway.
  */
-@Component(service = MfaLoginGateDecision.class, immediate = true,
+@Component(service = {MfaLoginGateDecision.class, MfaSiteConfigChangeListener.class}, immediate = true,
         configurationPid = "org.jahia.modules.mfa.extensions")
-public class MfaLoginGateDecision {
+public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
 
     private static final Logger logger = LoggerFactory.getLogger(MfaLoginGateDecision.class);
 
@@ -186,6 +187,29 @@ public class MfaLoginGateDecision {
     public void unbindSiteProvider(MfaSiteProvider provider) {
         siteProviders.remove(provider);
         enforcingCache.set(null);
+    }
+
+    /**
+     * Drop the cached "is any site enforcing?" answer so the next no-site {@code /cms/login} request
+     * re-queries the providers. Invoked when the per-site configuration changes (see
+     * {@link #onSiteConfigChanged()}): enabling a factor on the FIRST site would otherwise leave the
+     * stale "not enforcing" answer cached for up to {@value #ENFORCING_CACHE_MILLIS} ms, a bounded
+     * fail-OPEN window in this security gate (U8). Public so the same-bundle
+     * {@link MfaSiteConfigService} can trigger it across the internal/non-internal package split.
+     */
+    public void invalidateEnforcingCache() {
+        enforcingCache.set(null);
+    }
+
+    /**
+     * {@link MfaSiteConfigChangeListener} callback: the per-site config just changed, so the cached
+     * enforcement answer may be stale — drop it immediately (closes the U8 fail-open window). This
+     * component is wired to the config service as an <em>optional/dynamic</em> reverse reference, so
+     * this fires only once both components are up and never forms an activation cycle.
+     */
+    @Override
+    public void onSiteConfigChanged() {
+        invalidateEnforcingCache();
     }
 
     @Activate
