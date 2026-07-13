@@ -1,0 +1,10 @@
+# Applied via the provisioning API after Jahia is ready (see ci.startup.sh).
+#
+# Jahia's api-security bundle defaults security.profile=default, which blocks GraphQL API calls
+# from non-privileged (non-root) users. The MFA admin-gate negative specs authenticate as a
+# regular (non site-admin) user and must reach the resolvers so the module's OWN requireSiteAdmin
+# gate is what denies them (not the transport layer). security.profile=open (disposable test
+# setup, never for production) lets those calls through; the MFA gates still deny as designed.
+- karafCommand: "log:log 'START - MFA test provisioning'"
+- karafCommand: "config:property-set -p org.jahia.bundles.api.security security.profile open"
+- karafCommand: "log:log 'END - MFA test provisioning'"

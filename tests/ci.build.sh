@@ -95,6 +95,20 @@ fi
 cp "${TOTP_LOGIN_UI_TGZ}" "${ARTIFACTS_DIR}/"
 echo "  staged: $(basename "${TOTP_LOGIN_UI_TGZ}")"
 
+# Stage a TOTP-only artifact set (everything EXCEPT the webauthn factor) for the D4 graceful-degrade
+# spec (ui.webauthn.softWire.cy.ts), consumed by docker-compose.totp-only.yml.
+TOTP_ONLY_DIR="$(pwd)/artifacts/jars-totp-only"
+echo "== Staging TOTP-only artifact set (no webauthn) =="
+mkdir -p "${TOTP_ONLY_DIR}"
+rm -f "${TOTP_ONLY_DIR}"/*.jar "${TOTP_ONLY_DIR}"/*.tgz
+for f in "${ARTIFACTS_DIR}"/*; do
+  case "$(basename "$f")" in
+    mfa-factors-webauthn-*) : ;; # skip webauthn on the TOTP-only node
+    *) cp "$f" "${TOTP_ONLY_DIR}/" ;;
+  esac
+done
+echo "  staged (totp-only): $(ls -1 "${TOTP_ONLY_DIR}" | tr '\n' ' ')"
+
 echo "== Building Cypress test image =="
 # We do NOT build a custom image; we use the official cypress/included one. Pull it now
 # so docker-compose up doesn't wait on first run.

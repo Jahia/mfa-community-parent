@@ -76,7 +76,8 @@ describe('WebAuthn login assertion verify — returning user (UI)', () => {
         cy.get('[data-testid="login-username"]', {timeout: 30000}).type(username);
         cy.get('[data-testid="login-password"]').type(password);
         cy.get('[data-testid="login-submit"]').click();
-        cy.get('[data-testid="enroll-choose-webauthn"]', {timeout: 30000}).click();
+        // Only webauthn is enforced/enabled here, so the EnrollmentChooser (shown only for >1
+        // offered factor) is skipped and the registration form renders directly.
         cy.get('[data-testid="enroll-webauthn-register"]', {timeout: 30000}).click();
         cy.location('pathname', {timeout: 30000}).should('not.contain', '/myLoginPage.html');
 

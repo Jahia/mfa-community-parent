@@ -53,7 +53,9 @@ describe('MFA UI accessibility (WCAG 2.2 AAA)', () => {
         cy.get('[data-testid="mfa-settings-signin"]', {timeout: 30000}).should('be.visible');
 
         cy.injectAxe();
-        cy.checkA11y(undefined, axeOptions, logViolations);
+        // Scope to the MFA sign-in surface: the enclosing login page's <html> element (and its
+        // lang attribute) is owned by the UPA test template-set, not this module.
+        cy.checkA11y('[data-testid="mfa-settings-signin"]', axeOptions, logViolations);
 
         // Exactly one top-level main landmark.
         cy.get('main').should('have.length.at.most', 1);
