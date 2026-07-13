@@ -89,6 +89,14 @@
             <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
+        <!-- Static mocking for the rate limiter's fail-open-on-JCR-error path: the limiter
+             hardcodes JCRTemplate.getInstance(), so the static must be mocked to make it throw. -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <version>4.11.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
