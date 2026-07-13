@@ -94,6 +94,25 @@
             <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
+        <!-- Static/JCR mocking for the JCR-bound store tests (report scan cap, lazy
+             re-encryption, grace re-grant). TotpUserStore hardcodes JCRTemplate.getInstance()
+             and returns concrete JCRUserNode/JCRSessionWrapper beyond the reach of the
+             subclass-fake pattern; mockito-inline (JUnit-4 compatible) mocks the static + those. -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-inline</artifactId>
+            <version>4.11.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- Guava is only needed at TEST time so Mockito can subclass the concrete JCRUserNode
+             (its API references guava types). It ships transitively at runtime via jahia-impl;
+             webauthn already gets it via yubico, totp does not, hence this test-only declaration. -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.0.0-jre</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
