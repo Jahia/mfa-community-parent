@@ -78,6 +78,31 @@ describe("self-service MFA settings services", () => {
         expect(res.credentials).toHaveLength(1);
       }
     });
+
+    it("reports unavailable (soft-wire) when the mfaWebauthn type is absent from the schema", async () => {
+      // Bundle not installed → Jahia returns a ValidationError-classified top-level error (data:null).
+      // (Real shape verified against a webauthn-absent Jahia node.)
+      mockGraphql({
+        errors: [
+          {
+            message: "Validation error (FieldUndefined@[mfaWebauthn]) : Field 'mfaWebauthn' in type 'Query' is undefined",
+            extensions: { classification: "ValidationError" },
+          },
+        ],
+        data: null,
+      });
+      const res = await webauthnStatus(API);
+      expect(res).toEqual({ success: false, unavailable: true });
+    });
+
+    it("surfaces a runtime error (not unavailable) when the error is not a ValidationError", async () => {
+      // Execution error (data present/null, no ValidationError classification) → normal error path,
+      // so a genuine backend failure still shows an error rather than silently hiding the section.
+      mockGraphql(errorEnvelope);
+      const res = await webauthnStatus(API);
+      expect(res.success).toBe(false);
+      expect(res).not.toHaveProperty("unavailable");
+    });
   });
 
   describe("rename / delete credential", () => {

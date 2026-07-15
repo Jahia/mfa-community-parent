@@ -28,7 +28,8 @@ under one **MFA Community** entry:
 ## Requirements
 
 - Jahia 8.2.3+
-- `user-password-authentication-api` 0.3.0+ (the UPA module must be installed and started)
+- `user-password-authentication-api` 0.2.0 (the UPA module must be installed and started; this is
+  the version the reactor's `<upa.version>` pins and builds against)
 - `graphql-dxm-provider` 3.4+
 - Java 11+
 

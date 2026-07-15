@@ -1,0 +1,19 @@
+# TOTP-only compose variant for the D4 graceful-degrade spec (ui.webauthn.softWire.cy.ts).
+#
+# login-ui soft-wires WebAuthn purely through runtime GraphQL (module-dependencies lists totp
+# only), so with the mfa-factors-webauthn bundle ABSENT the sign-in / settings UI must still render
+# the TOTP factor and must not error on the missing mfaWebauthn GraphQL. This override boots a Jahia
+# node whose auto-deploy directory contains ONLY the extensions + totp + login-ui bundles.
+#
+# Usage (Stage 6 wires this into ci.build.sh / ci.startup.sh):
+#   1. Populate ./artifacts/jars-totp-only with the extensions, totp and login-ui artifacts ONLY
+#      (i.e. everything ci.build.sh copies EXCEPT mfa-factors-webauthn-*.jar).
+#   2. docker compose -f docker-compose.yml -f docker-compose.totp-only.yml up ...
+#      and run the spec with --spec cypress/e2e/ui.webauthn.softWire.cy.ts
+#
+# Only the jahia auto-deploy mount is overridden; every other service is inherited from the base
+# docker-compose.yml.
+services:
+    jahia:
+        volumes:
+            - ./artifacts/jars-totp-only:/var/jahia/modules:ro
