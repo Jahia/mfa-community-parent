@@ -1,14 +1,19 @@
 package org.jahia.modules.upa.mfa.extensions.internal;
 
 import org.jahia.params.valves.AuthValveContext;
+import org.jahia.pipelines.Pipeline;
 import org.jahia.pipelines.PipelineException;
+import org.jahia.pipelines.valves.Valve;
 import org.jahia.pipelines.valves.ValveContext;
 import org.junit.Test;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -27,7 +32,11 @@ import static org.junit.Assert.assertTrue;
  *   <li>continue the pipeline when not gated;</li>
  *   <li>BLOCK a gated, non-whitelisted password login - NOT continue the pipeline, and write a
  *       redirect to the configured login page (or {@code 403} when none is distinct);</li>
- *   <li>continue the pipeline (defense to the servlet filter) when the decision service is absent.</li>
+ *   <li>continue the pipeline (defense to the servlet filter) when the decision service is absent;</li>
+ *   <li>gate a password carried in the {@code Authorization} header the same way, answering
+ *       {@code 403} (a non-interactive caller has no login page to follow) and leaving a token
+ *       scheme alone;</li>
+ *   <li>register at the head of the pipeline, ahead of both valves that consume a password.</li>
  * </ul>
  */
 public class MfaLoginGateAuthValveTest {
@@ -67,6 +76,90 @@ public class MfaLoginGateAuthValveTest {
         assertFalse(recorder.invokedNext.get());
         assertEquals(Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
         assertNull(recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void gatedHeaderCredential_blocksWith403EvenWhenALoginUrlIsConfigured() throws Exception {
+        // A password carried in the Authorization header is a single factor exactly like the form
+        // parameters, so it is gated the same way - but the caller is a non-interactive client, so the
+        // answer is 403 and never a redirect, even with a distinct login page configured.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = false;
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());
+        assertFalse("a gated header credential must NOT continue the pipeline", recorder.invokedNext.get());
+        assertEquals(Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
+        assertNull("a non-interactive caller must not be redirected", recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void gatedHeaderCredential_isMatchedCaseInsensitively() throws Exception {
+        // RFC 7235 makes the scheme token case-insensitive, so the gate covers every spelling.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestWithAuthorization("basic YWxpY2U6czNjcmV0");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertFalse(recorder.invokedNext.get());
+        assertEquals(Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
+    }
+
+    @Test
+    public void notGatedHeaderCredential_continuesPipeline() throws Exception {
+        StubDecision decision = new StubDecision();
+        decision.gated = false;
+        Recorder recorder = new Recorder();
+        valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());
+        assertTrue("not gated => the header credential may authenticate", recorder.invokedNext.get());
+        assertNull(recorder.errorSent.get());
+        assertNull(recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void whitelistedHeaderCredential_continuesPipeline() throws Exception {
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = true; // the same emergency door as the form-parameter path
+        Recorder recorder = new Recorder();
+        valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());
+        assertTrue(recorder.invokedNext.get());
+        assertNull(recorder.errorSent.get());
+    }
+
+    @Test
+    public void nonPasswordAuthorizationScheme_continuesPipeline() throws Exception {
+        // Only a password carried in the header is this gate's business: a token scheme presents no
+        // password and carries its own policy, so it continues even while gated.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestWithAuthorization("Bearer abcdef.0123456789");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertTrue("a token credential is not gated here", recorder.invokedNext.get());
+        assertNull(recorder.errorSent.get());
+        assertNull(recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void activate_registersAtTheHeadOfThePipeline() throws Exception {
+        // The position is what puts the gate ahead of BOTH valves that consume a password
+        // (HttpBasicAuthValve at the head of the default pipeline, LoginEngineAuthValve after it).
+        RecordingPipeline pipeline = new RecordingPipeline();
+        Object previousContext = swapSpringContext(contextResolvingBeanTo(pipeline));
+        try {
+            MfaLoginGateAuthValve valve = new MfaLoginGateAuthValve();
+            valve.activate();
+            // The literal, not the constant: the assertion is the placement itself, not that the
+            // code agrees with its own field.
+            assertEquals("the gate must be inserted at the head of the pipeline",
+                    Integer.valueOf(0), pipeline.insertedAt.get());
+            assertFalse("the gate must never be appended behind the credential valves",
+                    pipeline.appended.get());
+        } finally {
+            swapSpringContext(previousContext);
+        }
     }
 
     @Test
@@ -134,6 +227,29 @@ public class MfaLoginGateAuthValveTest {
 
     // --- Helpers --------------------------------------------------------------------------------
 
+    /** An ApplicationContext whose {@code getBean(String)} returns {@code bean} (everything else null). */
+    private static Object contextResolvingBeanTo(Object bean) {
+        Class<?> appContext;
+        try {
+            appContext = Class.forName("org.springframework.context.ApplicationContext");
+        } catch (ClassNotFoundException e) {
+            throw new AssertionError(e);
+        }
+        return Proxy.newProxyInstance(appContext.getClassLoader(), new Class<?>[]{appContext},
+                (proxy, method, args) -> "getBean".equals(method.getName()) ? bean : null);
+    }
+
+    /** Set the SpringContextSingleton's context field to {@code context}, returning the previous value. */
+    private static Object swapSpringContext(Object context) throws Exception {
+        Class<?> singletonClass = Class.forName("org.jahia.services.SpringContextSingleton");
+        Object singleton = singletonClass.getMethod("getInstance").invoke(null);
+        Field contextField = singletonClass.getDeclaredField("context");
+        contextField.setAccessible(true);
+        Object previous = contextField.get(singleton);
+        contextField.set(singleton, context);
+        return previous;
+    }
+
     /** A valve whose OSGi lookup is short-circuited to return the given (possibly null) stub. */
     private static MfaLoginGateAuthValve valve(MfaLoginGateDecision decision) {
         return new MfaLoginGateAuthValve() {
@@ -153,7 +269,21 @@ public class MfaLoginGateAuthValveTest {
         return requestWith("alice", "s3cret");
     }
 
+    /** A request carrying a password in the Authorization header (alice:s3cret), no form parameters. */
+    private static HttpServletRequest basicAuthRequest() {
+        return requestWithAuthorization("Basic YWxpY2U6czNjcmV0");
+    }
+
     private static HttpServletRequest requestWith(String username, String password) {
+        return requestWith(username, password, null);
+    }
+
+    /** A request carrying the given {@code Authorization} header and no form credentials. */
+    private static HttpServletRequest requestWithAuthorization(String authorization) {
+        return requestWith(null, null, authorization);
+    }
+
+    private static HttpServletRequest requestWith(String username, String password, String authorization) {
         return (HttpServletRequest) Proxy.newProxyInstance(
                 MfaLoginGateAuthValveTest.class.getClassLoader(),
                 new Class<?>[]{HttpServletRequest.class},
@@ -167,6 +297,8 @@ public class MfaLoginGateAuthValveTest {
                                 return password;
                             }
                             return null;
+                        case "getHeader":
+                            return "Authorization".equals(args[0]) ? authorization : null;
                         case "getContextPath":
                             return "";
                         case "getRequestURI":
@@ -175,6 +307,60 @@ public class MfaLoginGateAuthValveTest {
                             return null;
                     }
                 });
+    }
+
+    /** A {@link Pipeline} that records how the valve asked to be inserted. */
+    private static final class RecordingPipeline implements Pipeline {
+        private final AtomicReference<Integer> insertedAt = new AtomicReference<>();
+        private final AtomicBoolean appended = new AtomicBoolean(false);
+        private final List<Valve> valves = new ArrayList<>();
+
+        @Override
+        public void addValve(int position, Valve valve) {
+            insertedAt.set(position);
+            valves.add(position, valve);
+        }
+
+        @Override
+        public void addValve(Valve valve) {
+            appended.set(true);
+            valves.add(valve);
+        }
+
+        @Override
+        public Valve[] getValves() {
+            return valves.toArray(new Valve[0]);
+        }
+
+        @Override
+        public void removeValve(Valve valve) {
+            valves.remove(valve);
+        }
+
+        @Override
+        public void initialize() {
+            // nothing to initialize in the stub
+        }
+
+        @Override
+        public void invoke(Object context) {
+            // the stub is never driven
+        }
+
+        @Override
+        public boolean hasValveOfClass(Class<Valve> c) {
+            return false;
+        }
+
+        @Override
+        public Valve getFirstValveOfClass(Class<Valve> c) {
+            return null;
+        }
+
+        @Override
+        public void setEnvironment(Map<String, Object> environment) {
+            // no environment in the stub
+        }
     }
 
     /** A stub decision with directly settable answers for the valve's three queries. */
