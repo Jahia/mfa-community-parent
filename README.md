@@ -70,6 +70,7 @@ Configuration → MFA Community* (server administrators) — or directly in the 
 | `loginGate.enabled` | `false` | Master switch for the `/cms/login` gate (see below). |
 | `loginGate.ipWhitelist` | _(empty)_ | Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate (e.g. `203.0.113.7, 10.0.0.0/8, 2001:db8::/32`). |
 | `loginGate.trustForwardedFor` | `false` | Whether the whitelist match is taken from the **first `X-Forwarded-For` entry** instead of the raw socket peer address. Only enable behind a reverse proxy that **overwrites** (not merely appends to) the header — see the security note below. |
+| `loginGate.gateBasicAuth` | `false` | Whether the gate also refuses a password presented in an **`Authorization: Basic`** header. Closes the same bypass on the machine-facing surface, but applies to **every endpoint** — read [Gating `Authorization: Basic`](#gating-authorization-basic-optional) before enabling. |
 
 ### Per-site configuration
 
@@ -244,9 +245,20 @@ vanilla semantics stand: every login requires the email challenge on top of ever
 
 Jahia's legacy `/cms/login` endpoint authenticates with username/password only — it never
 consults MFA factors. While enforcement is active it is therefore a complete second-factor
-bypass. `MfaLoginGateFilter` (in the extensions bundle; a Jahia `AbstractServletFilter` running
-before the authentication valve, so blocked requests never get a session) closes it. It is
-factor-agnostic — it intersects the global policy with every factor's `MfaSiteProvider`:
+bypass. Two components in the extensions bundle close it, sharing one decision object
+(`MfaLoginGateDecision`) so they can never drift apart:
+
+- `MfaLoginGateAuthValve` — a Jahia authentication valve registered at **position 0** of the
+  `authPipeline`, ahead of every valve that consumes a credential. This is the decisive block:
+  Jahia authenticates a `/cms/login` **POST** inside that pipeline, which runs *before* module
+  servlet filters, so a filter alone would see the session already established. The valve blocks a
+  gated password login **whenever enforcement is active**, independently of `loginGate.enabled`.
+- `MfaLoginGateFilter` — an `AbstractServletFilter` bound to `/cms/login`, kept as
+  defense-in-depth and mainly effective for the credential-free **GET** case. `loginGate.enabled`
+  tunes this filter's behavior, described below.
+
+The gate is factor-agnostic — it intersects the global policy with every factor's
+`MfaSiteProvider`:
 
 - nothing is gated while `enforcedFactors` is empty;
 - requests carrying a site context (`?site=<key>` parameter or the `siteKey` request
@@ -294,6 +306,53 @@ The hard gate is **off by default**: enabling it with an empty whitelist locks e
 (including platform administrators) out of `/cms/login` as soon as one site enforces
 enrollment — set the whitelist first, then flip `loginGate.enabled=true`. JCR errors fail
 **closed** (request blocked).
+
+#### Gating `Authorization: Basic` (optional)
+
+`/cms/login` is not the only way a password authenticates without MFA. Jahia's
+`HttpBasicAuthValve` — enabled by default and sitting at the head of the `authPipeline` — takes a
+username/password from an `Authorization: Basic` header and never consults MFA factors either. So
+while enforcement is active, `curl -u user:password https://…/modules/graphql` is the same
+second-factor bypass, reachable on every endpoint.
+
+`loginGate.gateBasicAuth=true` closes it: the valve refuses such a request with **403** before
+authentication happens. It answers `403` and never a redirect — the caller is a non-interactive
+client with no login page to follow.
+
+**It is off by default, and that default is deliberate.** Unlike the form-parameter shape, this one
+is not tied to an endpoint — it is what *every* machine client sends. With it armed and **one** site
+enforcing a factor, all of the following start answering `403` platform-wide:
+
+- `/modules/api/provisioning` (including the configuration of this module)
+- `/modules/graphql`, `/modules/tools/*`
+- WebDAV, CI jobs, monitoring probes, custom integrations
+
+Before enabling it:
+
+1. **Migrate non-interactive callers to personal API tokens.** Jahia's `TokenAuthValve` is *not*
+   gated — tokens carry their own policy. This is the supported path for scripts and integrations.
+2. **Verify your escape hatch actually works.** `loginGate.ipWhitelist` is the only HTTP way back
+   in, and it does not match in every topology: behind a reverse proxy — including Tomcat's
+   `RemoteIpValve`, enabled by default on the Jahia EE image — the whitelist fails **closed** unless
+   `loginGate.trustForwardedFor=true` as well (GHSA-4v3g-mcmj-83fp, above). Confirm a whitelisted
+   client gets through *before* you arm the switch.
+   Whitelist your **automation hosts** too, not just an admin VPN range: tooling authenticates far
+   more often than people do, and often invisibly. This module's own Cypress harness is the worked
+   example — `@jahia/cypress` writes a log marker through the provisioning API in a global
+   `beforeEach`/`afterEach` around *every* test, with Basic auth, so an un-whitelisted runner fails
+   in its hooks before a single assertion runs.
+3. Know the fallback: if the whitelist cannot match, the only way to revert the key is editing
+   `<karaf.etc>/org.jahia.modules.mfa.extensions.cfg` on the server filesystem.
+
+The switch is hot-reloaded (`@Modified`), so reverting it takes effect without a restart. It is
+intentionally **not** exposed in the *MFA Community* administration UI: a control that can remove
+your own API access should be a deliberate, file-or-provisioning-level change. The first blocked
+request after activation logs a `WARN` naming the switch and how to revert; subsequent ones are
+`DEBUG`, so an unauthenticated caller cannot flood the log.
+
+Note this gate is user-agnostic: it runs before any identity exists, so it cannot honour the
+per-site policy *groups* that scope enforcement to particular users. A policy targeting one group on
+one site still refuses every Basic credential platform-wide once armed.
 
 Tunable security constants (`DRIFT_WINDOWS`, `TIME_STEP_SECONDS`, `DIGITS`, PBKDF2
 iterations, ...) live in `TotpService` and `BackupCodes`. To change them, fork and rebuild.

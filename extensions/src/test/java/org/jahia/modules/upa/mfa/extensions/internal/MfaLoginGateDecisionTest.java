@@ -342,6 +342,71 @@ public class MfaLoginGateDecisionTest {
         assertTrue(decision.isClientWhitelisted(requestWith("203.0.113.9", "198.51.100.23")));
     }
 
+    // --- Basic-auth gating opt-in (loginGate.gateBasicAuth) -----------------------------------
+    //
+    // Every switch on this PID widens what the gate blocks or what it trusts, so an absent or
+    // unparseable value must read as OFF. For gateBasicAuth specifically, defaulting to ON would
+    // mean an upgrade of this bundle silently starts 403ing every Basic-auth integration on a
+    // platform that already has enforcement armed - including /modules/api/provisioning, the API an
+    // operator would reach for to undo it.
+
+    @Test
+    public void basicAuthGate_isOffWhenTheKeyIsAbsent() {
+        MfaLoginGateDecision decision = new MfaLoginGateDecision();
+        decision.activate(new HashMap<>());
+        assertFalse("an absent loginGate.gateBasicAuth must read as OFF", decision.isBasicAuthGateEnabled());
+    }
+
+    @Test
+    public void basicAuthGate_isOffWithNullPropertiesOrAGarbageValue() {
+        MfaLoginGateDecision decision = new MfaLoginGateDecision();
+        decision.activate(null);
+        assertFalse("no properties at all must read as OFF", decision.isBasicAuthGateEnabled());
+
+        Map<String, Object> props = new HashMap<>();
+        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "yes-please");
+        decision.activate(props);
+        assertFalse("an unparseable value must read as OFF, never as ON",
+                decision.isBasicAuthGateEnabled());
+    }
+
+    @Test
+    public void basicAuthGate_isOnOnlyWhenExplicitlySetTrue() {
+        MfaLoginGateDecision decision = new MfaLoginGateDecision();
+        Map<String, Object> props = new HashMap<>();
+        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "true");
+        decision.activate(props);
+        assertTrue(decision.isBasicAuthGateEnabled());
+    }
+
+    @Test
+    public void basicAuthGate_isHotReloadedBackToOff() {
+        // @Modified re-runs activate(): an operator reverting the key in the .cfg must take effect
+        // without a restart - this is the documented way back when the IP whitelist cannot match.
+        MfaLoginGateDecision decision = new MfaLoginGateDecision();
+        Map<String, Object> armed = new HashMap<>();
+        armed.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "true");
+        decision.activate(armed);
+        assertTrue(decision.isBasicAuthGateEnabled());
+
+        Map<String, Object> reverted = new HashMap<>();
+        reverted.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "false");
+        decision.activate(reverted);
+        assertFalse("reverting the key must take effect live", decision.isBasicAuthGateEnabled());
+    }
+
+    @Test
+    public void basicAuthGate_isIndependentOfTheHardGateSwitch() {
+        // The two switches are orthogonal: loginGate.enabled tunes the servlet filter's GET
+        // handling on /cms/login, gateBasicAuth decides whether the valve covers the header shape.
+        MfaLoginGateDecision decision = new MfaLoginGateDecision();
+        Map<String, Object> props = new HashMap<>();
+        props.put(MfaLoginGateDecision.CONFIG_GATE_ENABLED, "true");
+        decision.activate(props);
+        assertTrue(decision.isHardGateEnabled());
+        assertFalse("the hard gate must not imply the Basic-auth gate", decision.isBasicAuthGateEnabled());
+    }
+
     // --- Failing closed behind Tomcat's RemoteIpValve (GHSA-4v3g-mcmj-83fp) -------------------
     //
     // Tomcat's RemoteIpValve overwrites getRemoteAddr() IN PLACE from X-Forwarded-For and does NOT

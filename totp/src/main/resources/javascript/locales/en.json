@@ -29,7 +29,7 @@
   "codePrompt": {
     "codeOrBackupLabel": "6-digit code or backup code",
     "codeOrBackupPlaceholder": "123456 or a backup code",
-    "backupHint": "Enter the 6-digit code from your authenticator app, or one of your single-use backup codes if you no longer have the app."
+    "backupHint": "Enter the 6-digit code currently shown by your authenticator app. Backup codes are not accepted here."
   },
   "backupCodesDialog": {
     "title": "Your backup codes",
@@ -93,7 +93,8 @@
       "permissionDenied": "You don't have permission to change these settings.",
       "notAuthenticated": "Please sign in again to change these settings.",
       "invalidUrl": "The login/logout URL must be a relative path starting with / (e.g. /sites/mySite/login.html). Absolute or external URLs are not allowed.",
-      "generic": "Could not save the settings. Please try again."
+      "generic": "Could not save the settings. Please try again.",
+      "loadFailed": "The current site settings could not be loaded. Saving is disabled until they load successfully, to avoid overwriting them with blank defaults. Please reload the page."
     }
   },
   "mfaCommunity": {

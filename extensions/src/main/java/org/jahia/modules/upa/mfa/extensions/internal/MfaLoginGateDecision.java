@@ -27,16 +27,17 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 /**
- * The shared, request-time decision logic that gates Jahia's legacy login endpoint
- * ({@code /cms/login}) while ANY MFA factor enforces enrollment. It is consulted by BOTH access
- * points that protect that endpoint:
+ * The shared, request-time decision logic that gates a password login while ANY MFA factor
+ * enforces enrollment. It is consulted by BOTH access points that apply the gate:
  * <ul>
- *   <li>{@link MfaLoginGateAuthValve} - a Jahia authentication valve inserted BEFORE the
- *       password-login valve, which is the only place that can block a {@code /cms/login}
+ *   <li>{@link MfaLoginGateAuthValve} - a Jahia authentication valve registered at the HEAD of the
+ *       authentication pipeline, which is the only place that can block a {@code /cms/login}
  *       <b>POST</b> before a session is established (the servlet filter runs too late for POST -
- *       see that class);</li>
- *   <li>{@link MfaLoginGateFilter} - the servlet filter that remains as defense-in-depth, mainly
- *       effective for GET requests with no credentials to authenticate.</li>
+ *       see that class). The valve also covers a password carried in an {@code Authorization: Basic}
+ *       header, but ONLY when the operator arms {@code loginGate.gateBasicAuth} - that shape reaches
+ *       every endpoint, so it is opt-in;</li>
+ *   <li>{@link MfaLoginGateFilter} - the servlet filter that remains as defense-in-depth on
+ *       {@code /cms/login}, mainly effective for GET requests with no credentials to authenticate.</li>
  * </ul>
  * <p>
  * The MFA challenge runs in UPA's GraphQL {@code initiate} flow (used by the factor login UI) -
@@ -105,6 +106,11 @@ import java.util.regex.Pattern;
  *   <li>{@code loginGate.trustForwardedFor} - whether to read the client IP from the
  *       {@code X-Forwarded-For} header, default {@code false} (spoof-proof socket address; SEC-135).
  *       Only enable behind a reverse proxy that overwrites the header.</li>
+ *   <li>{@code loginGate.gateBasicAuth} - whether the valve also gates a password presented in an
+ *       {@code Authorization: Basic} header, default {@code false}. Unlike the {@code /cms/login}
+ *       form shape this reaches EVERY endpoint (the provisioning API, GraphQL, the tools, WebDAV),
+ *       so arming it refuses every Basic-auth integration platform-wide while enforcement is
+ *       active. Opt-in for exactly that reason; see {@link #isBasicAuthGateEnabled()}.</li>
  * </ul>
  * <p>
  * A provider that cannot answer (e.g. an unhealthy repository) throws, and the gate fails
@@ -120,6 +126,7 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
     static final String CONFIG_GATE_ENABLED = "loginGate.enabled";
     static final String CONFIG_GATE_WHITELIST = "loginGate.ipWhitelist";
     static final String CONFIG_TRUST_FORWARDED_FOR = "loginGate.trustForwardedFor";
+    static final String CONFIG_GATE_BASIC_AUTH = "loginGate.gateBasicAuth";
 
     private static final String HEADER_X_FORWARDED_FOR = "X-Forwarded-For";
     /**
@@ -151,6 +158,13 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
      * (SEC-135). Only enable behind a reverse proxy that overwrites {@code X-Forwarded-For}.
      */
     private final AtomicBoolean trustForwardedFor = new AtomicBoolean(false);
+    /**
+     * Gate a password presented in an {@code Authorization: Basic} header. Default {@code false}:
+     * that shape is not confined to {@code /cms/login} - it is what every non-interactive client
+     * uses on EVERY endpoint - so arming it refuses the provisioning API, GraphQL, the tools and
+     * WebDAV platform-wide as soon as one site enforces a factor. Opt-in, like the hard gate.
+     */
+    private final AtomicBoolean gateBasicAuth = new AtomicBoolean(false);
     private final AtomicReference<List<String>> whitelist = new AtomicReference<>(Collections.emptyList());
     private final AtomicReference<EnforcingCache> enforcingCache = new AtomicReference<>();
 
@@ -225,13 +239,14 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
     @Activate
     @Modified
     public void activate(Map<String, Object> properties) {
-        boolean enabled = properties != null
-                && Boolean.parseBoolean(String.valueOf(properties.get(CONFIG_GATE_ENABLED)));
+        boolean enabled = parseFlag(properties, CONFIG_GATE_ENABLED);
         List<String> entries = parseWhitelist(properties == null ? null : properties.get(CONFIG_GATE_WHITELIST));
-        boolean trustXff = parseTrustForwardedFor(properties);
+        boolean trustXff = parseFlag(properties, CONFIG_TRUST_FORWARDED_FOR);
+        boolean basicAuth = parseFlag(properties, CONFIG_GATE_BASIC_AUTH);
         gateEnabled.set(enabled);
         whitelist.set(entries);
         trustForwardedFor.set(trustXff);
+        gateBasicAuth.set(basicAuth);
         enforcingCache.set(null); // settings may have changed semantics; re-query on next hit
         logger.info("MFA /cms/login gate {} ({} whitelist entr{})",
                 enabled ? "ENABLED" : "disabled", entries.size(), entries.size() == 1 ? "y" : "ies");
@@ -241,14 +256,28 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
                     + "reverse proxy that overwrites the header, or set {}=false.",
                     CONFIG_TRUST_FORWARDED_FOR, CONFIG_TRUST_FORWARDED_FOR);
         }
+        if (basicAuth) {
+            logger.warn("MFA gate: {} is TRUE - while a site enforces a factor, EVERY request carrying an "
+                    + "Authorization: Basic header is refused with 403, on every endpoint (provisioning API, "
+                    + "GraphQL, tools, WebDAV), not just /cms/login. Non-interactive clients must switch to a "
+                    + "personal API token. Keep a working way back in: behind a reverse proxy (or Tomcat's "
+                    + "RemoteIpValve) {} only matches when {} is also true, otherwise the whitelist fails "
+                    + "closed and the only way to revert this key is editing the .cfg file on disk.",
+                    CONFIG_GATE_BASIC_AUTH, CONFIG_GATE_WHITELIST, CONFIG_TRUST_FORWARDED_FOR);
+        }
     }
 
-    /** {@code loginGate.trustForwardedFor}; default {@code false} (spoof-proof socket address; SEC-135). */
-    private static boolean parseTrustForwardedFor(Map<String, Object> properties) {
+    /**
+     * Read a boolean key, defaulting to {@code false} when absent or unparseable - the safe default
+     * for every switch on this PID ({@code loginGate.enabled}, {@code loginGate.trustForwardedFor}
+     * (SEC-135), {@code loginGate.gateBasicAuth}): each of them WIDENS what the gate blocks or what
+     * it trusts, so "not configured" must never mean "on".
+     */
+    private static boolean parseFlag(Map<String, Object> properties, String key) {
         if (properties == null) {
             return false;
         }
-        Object raw = properties.get(CONFIG_TRUST_FORWARDED_FOR);
+        Object raw = properties.get(key);
         return raw != null && Boolean.parseBoolean(String.valueOf(raw));
     }
 
@@ -280,6 +309,24 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
     /** Whether the explicit HARD gate switch ({@code loginGate.enabled}) is on. */
     public boolean isHardGateEnabled() {
         return gateEnabled.get();
+    }
+
+    /**
+     * Whether a password presented in an {@code Authorization: Basic} header is gated
+     * ({@code loginGate.gateBasicAuth}, default {@code false}).
+     * <p>
+     * Left to the operator rather than always-on, unlike the {@code /cms/login} POST block. That
+     * block is bounded to one interactive endpoint whose blocked callers have a login page to
+     * follow; the header shape is bounded by nothing - it is the credential every script,
+     * integration and CI job uses, on every endpoint. Arming it with one site enforcing a factor
+     * therefore 403s the whole machine-facing surface at once, and the emergency door does not
+     * always answer: behind Tomcat's {@code RemoteIpValve} (shipped enabled on the Jahia EE image)
+     * the whitelist fails CLOSED with {@code trustForwardedFor=false} (GHSA-4v3g-mcmj-83fp), so an
+     * operator can arm this and lose the very API needed to disarm it. Opting in is what makes that
+     * a decision rather than a surprise.
+     */
+    public boolean isBasicAuthGateEnabled() {
+        return gateBasicAuth.get();
     }
 
     /**
