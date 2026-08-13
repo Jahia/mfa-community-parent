@@ -28,7 +28,9 @@ import static org.junit.Assert.fail;
 
 /**
  * The global pick-one enforcement decision table in {@link WebAuthnFactorProvider#prepare}
- * (mirrors the TOTP test for the rows that do not require a live assertion ceremony).
+ * (mirrors the TOTP test for the rows that do not require a live assertion ceremony), including
+ * the rule that per-site activation may keep a NON-enforced factor out of the way but must never
+ * suppress a globally enforced one (the site key is client-supplied on {@code mfaInitiate}).
  */
 public class WebAuthnFactorProviderEnforcementTest {
 
@@ -89,10 +91,37 @@ public class WebAuthnFactorProviderEnforcementTest {
     }
 
     @Test
-    public void siteDisabled_skips() throws Exception {
+    public void siteDisabled_skipsWhenTheFactorIsNotGloballyEnforced() throws Exception {
+        // The legitimate opt-in row: WebAuthn is not enforced platform-wide and this site does not
+        // use it, so the factor steps aside for the session.
+        siteSettingsStore.enabled = false;
+        configurePolicy("", null);
+        assertTrue(isSkipped(provider.prepare(ctx())));
+    }
+
+    @Test
+    public void siteDisabled_doesNotSuppressAGloballyEnforcedFactor_registeredUserIsChallenged() throws Exception {
+        // Mirrors the TOTP row: the site key comes from a CLIENT-SUPPLIED argument on mfaInitiate,
+        // so a site with no WebAuthn configuration used to yield a SKIPPED preparation for a
+        // globally enforced factor — and verify() accepts any submission for a skipped preparation.
         siteSettingsStore.enabled = false;
         configurePolicy("webauthn", null);
-        assertTrue(isSkipped(provider.prepare(ctx())));
+        credentialStore.registered = true;
+        provider.setWebAuthnService(new FakeWebAuthnService());
+        assertFalse("global enforcement outranks per-site activation", isSkipped(provider.prepare(ctx())));
+    }
+
+    @Test
+    public void siteDisabled_doesNotSuppressAGloballyEnforcedFactor_unregisteredUserIsBlocked() {
+        siteSettingsStore.enabled = false;
+        configurePolicy("webauthn", "0");
+        credentialStore.registered = false;
+        try {
+            provider.prepare(ctx());
+            fail("expected registration_required — a skipped preparation would complete sign-in unchallenged");
+        } catch (MfaException e) {
+            assertEquals(WebAuthnFactorProvider.ERROR_REGISTRATION_REQUIRED, e.getCode());
+        }
     }
 
     @Test

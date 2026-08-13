@@ -100,13 +100,24 @@ public class TotpFactorQuery {
         }
     }
 
+    /**
+     * The enrollment report is REPOSITORY-WIDE: {@code buildEnrollmentReport} takes no site key and
+     * scans every {@code jnt:user}, because enrollment itself is global. Site administration is
+     * therefore not a sufficient right for it &mdash; gated on the site alone, it handed the
+     * administrator of any minor site the MFA status of every account on the platform ({@code root}
+     * included), i.e. a target list of the accounts still protected by a password alone. The site is
+     * still checked (it frames the request and keeps a meaningful error for a bogus site key), but
+     * the platform-wide answer needs platform-wide rights.
+     */
     @GraphQLField
     @GraphQLName("enrollmentReport")
-    @GraphQLDescription("Who has / hasn't enrolled in TOTP (enrollment is global). Requires site-administrator access.")
+    @GraphQLDescription("Who has / hasn't enrolled in TOTP. The report covers the whole platform "
+            + "(enrollment is global), so it requires server-administrator access.")
     public TotpEnrollmentReportResult enrollmentReport(
             @GraphQLName("siteKey") @GraphQLNonNull String siteKey,
             @GraphQLName("limit") Integer limit) {
         TotpAdminAccess.requireSiteAdmin(siteKey);
+        TotpAdminAccess.requireServerAdmin();
         try {
             return new TotpEnrollmentReportResult(
                     userStore.buildEnrollmentReport(limit == null ? DEFAULT_REPORT_LIMIT : limit));

@@ -19,4 +19,20 @@ final class WebAuthnAdminAccess {
     static JCRSessionWrapper requireSiteAdmin(String siteKey) {
         return MfaAdminAccess.requireSiteAdmin(siteKey, ERROR_PREFIX);
     }
+
+    /** Require server administration for a platform-wide read (the registration report). */
+    static JCRSessionWrapper requireServerAdmin() {
+        return MfaAdminAccess.requireServerAdmin(ERROR_PREFIX);
+    }
+
+    /**
+     * Authorize an operation that acts on a target user with a system session (the admin reset) and
+     * resolve that user once, with the same global lookup
+     * {@link org.jahia.modules.upa.mfa.webauthn.WebAuthnCredentialStore} uses &mdash; see
+     * {@link MfaAdminAccess#requireAdminForUser} for why site administration alone never authorizes
+     * such a subject.
+     */
+    static MfaAdminAccess.Subject requireAdminForUser(String userId, String siteKey) {
+        return MfaAdminAccess.requireAdminForUser(userId, siteKey, ERROR_PREFIX);
+    }
 }

@@ -19,11 +19,12 @@ Each factor ships its own self-service dashboard panel. Site administration grou
 under one **MFA Community** entry:
 
 - **Extensions** — the per-site login/logout routing consumed by the shared login provider;
-- **Two-factor authentication** — TOTP policy (enable / group scoping, user reset; enforcement
-  is global — see `enforcedFactors`);
+- **Two-factor authentication** — TOTP policy (enable / group scoping; enforcement is global —
+  see `enforcedFactors`) plus user reset, which requires **server administration**;
 - **Security and passkeys** — WebAuthn policy (same shape);
-- **Audit & reporting** — every installed factor's audit log and enrollment/registration report
-  on a single page (each factor contributes its section; the page shows whatever is installed).
+- **Audit & reporting** — every installed factor's audit log (per site) and enrollment/registration
+  report (platform-wide, **server administration** required) on a single page (each factor
+  contributes its section; the page shows whatever is installed).
 
 ## Requirements
 
@@ -84,10 +85,10 @@ Sites are configured and managed from the Jahia administration UI (*MFA Communit
 | `siteKey` | _(required)_ | JCR site key (e.g. `digitall`). File name derives from this: `org.jahia.modules.mfa.extensions.site-<siteKey>.cfg`. |
 | `loginUrl` | _(empty)_ | **Per-site** login URL. Overrides the global `loginUrl`. |
 | `logoutUrl` | _(empty)_ | **Per-site** logout URL. Overrides the global `logoutUrl`. |
-| `totp.enabled` | `false` | Enable TOTP for this site. |
-| `totp.enabledGroups` | _(empty)_ | Comma-separated list of user group names who may use TOTP (e.g. `editors,reviewers`). Empty or unset = all authenticated users. |
-| `webauthn.enabled` | `false` | Enable WebAuthn for this site. |
-| `webauthn.enabledGroups` | _(empty)_ | Comma-separated list of user group names who may use WebAuthn. Empty or unset = all authenticated users. |
+| `totp.enabled` | `false` | Enable TOTP for this site. Opt-IN only: it cannot switch the factor off for a user who is enrolled, nor where TOTP is globally enforced (see *Global enforcement*). |
+| `totp.enabledGroups` | _(empty)_ | Comma-separated list of user group names who may use TOTP (e.g. `editors,reviewers`). Empty or unset = all authenticated users. Same opt-IN restriction as `totp.enabled`. |
+| `webauthn.enabled` | `false` | Enable WebAuthn for this site. Same opt-IN restriction as `totp.enabled`. |
+| `webauthn.enabledGroups` | _(empty)_ | Comma-separated list of user group names who may use WebAuthn. Empty or unset = all authenticated users. Same opt-IN restriction as `totp.enabled`. |
 
 Example `<karaf.etc>/org.jahia.modules.mfa.extensions.site-digitall.cfg`:
 
@@ -157,8 +158,30 @@ in the same flow. Empty `enforcedFactors` (the default) = no enforcement.
 > **Migration note:** the per-site *Enforce enrollment* checkbox and *grace period* were removed
 > from both factor administration pages. Existing per-site `upaTotp:enforced` /
 > `upaWebauthn:enforced` / `…graceDays` values become inert after upgrade (the CND retains the
-> properties; nothing reads them). Operators opt in by setting `enforcedFactors` globally —
-> per-site `enabled` + group scoping still applies.
+> properties; nothing reads them). Operators opt in by setting `enforcedFactors` globally.
+
+> **A per-site switch never removes a factor a user must, or does, answer.** The per-site
+> `<factor>.enabled` flag and `<factor>.enabledGroups` scope are **opt-IN only**, and they decide
+> a sign-in in exactly one case: the factor is **not** in `enforcedFactors` **and** the user has
+> **not** configured it — there is nothing to challenge, so the factor is skipped. In every other
+> case they are ignored at sign-in:
+>
+> - a factor listed in `enforcedFactors` is required on every site, including sites where it is
+>   disabled or where the user is outside `enabledGroups` (the server logs a `WARN` naming the
+>   overridden group scope). Scope enrollment to a subset of users by *not* enforcing the factor,
+>   not with per-site groups;
+> - a user who **is** enrolled is always challenged, even on a site that does not use the factor.
+>
+> This is a security property, not a preference: the site key is a **client-supplied** argument on
+> UPA's `mfaInitiate`, and a skipped factor accepts any submission (an empty code included). Were a
+> per-site switch allowed to suppress a challenge, a caller holding only a stolen password could
+> name a site where the factor is off — or whose group list excludes the victim — and finish
+> authenticating with no second factor. The resulting Jahia session is global anyway, not scoped to
+> the site named at sign-in.
+>
+> `enabled` / `enabledGroups` keep their full effect on everything else: whether the factor is
+> offered for enrollment in the dashboard and whether the login UI proposes it to users who do not
+> own it.
 
 > **UPA prerequisite for several factors:** UPA's `mfaEnabledFactors` (PID
 > `org.jahia.modules.upa`) is an OSGi `String[]` and CANNOT hold several values in a plain
@@ -343,7 +366,8 @@ at login the browser performs an assertion ceremony — the private key never le
 and the assertion is bound to the site's origin so it cannot be relayed by a phishing proxy.
 
 It ships its own per-site administration page (*MFA Community → Security and passkeys*: enable /
-groups, user reset; enforcement is global — see `enforcedFactors`) mirroring TOTP, contributes
+groups, plus a server-administrator-only user reset; enforcement is global — see
+`enforcedFactors`) mirroring TOTP, contributes
 its registration report to the shared *Audit & reporting* page, and credentials are stored as
 `upaWebauthn:credential` child nodes on the user. Clone detection is enforced via the
 authenticator signature counter, persisted atomically on each assertion.
@@ -378,7 +402,7 @@ All TOTP mutations are exposed under `Mutation.upa.mfaFactors.totp`:
 | `regenerateBackupCodes` | `code: String!` | `MfaTotpBackupCodesResult` (`backupCodes: [String]`) |
 | `disable` | `code: String!` | `Result` |
 | `setSiteSettings` | `siteKey: String!`, `enabled: Boolean!`, `enabledGroups: [String]`, `loginUrl: String`, `logoutUrl: String` | `MfaTotpSiteSettingsResult` |
-| `resetUserMfa` | `userId: String!`, `siteKey: String!` | `Boolean` |
+| `resetUserMfa` | `userId: String!`, `siteKey: String!` | `Boolean` — **server administrator only** (see *Lockout & recovery*) |
 
 ### TOTP queries
 
@@ -389,7 +413,7 @@ TOTP queries are exposed as a flat root field `Query.mfaTotp`:
 | `status` | &mdash; | `MfaTotpStatusResult` (`enrolled: Boolean`, `backupCodesRemaining: Int`) |
 | `siteSettings` | `siteKey: String!` | `MfaTotpSiteSettingsResult` |
 | `auditEvents` | `siteKey: String!`, `limit: Int` | `[MfaTotpAuditEvent]` |
-| `enrollmentReport` | `siteKey: String!`, `limit: Int` | `MfaTotpEnrollmentReport` |
+| `enrollmentReport` | `siteKey: String!`, `limit: Int` | `MfaTotpEnrollmentReport` — platform-wide, **server administrator only** |
 
 ### WebAuthn mutations
 
@@ -404,7 +428,7 @@ WebAuthn mutations are exposed under `Mutation.upa.mfaFactors.webauthn`:
 | `renameCredential` | `credentialId: String!`, `nickname: String!` | `Boolean` |
 | `deleteCredential` | `credentialId: String!` | `Boolean` |
 | `setSiteSettings` | `siteKey: String!`, `enabled: Boolean!`, `enabledGroups: [String]` | `MfaWebauthnSiteSettingsResult` |
-| `resetUserWebauthn` | `userId: String!`, `siteKey: String!` | `Boolean` |
+| `resetUserWebauthn` | `userId: String!`, `siteKey: String!` | `Boolean` — **server administrator only** (see *Lockout & recovery*) |
 
 ### WebAuthn queries
 
@@ -416,7 +440,7 @@ WebAuthn queries are exposed as a flat root field `Query.mfaWebauthn`:
 | `status` | &mdash; | `MfaWebauthnStatusResult` (credentials list) |
 | `siteSettings` | `siteKey: String!` | `MfaWebauthnSiteSettingsResult` |
 | `auditEvents` | `siteKey: String!`, `limit: Int` | `[MfaWebauthnAuditEvent]` |
-| `enrollmentReport` | `siteKey: String!`, `limit: Int` | `MfaWebauthnEnrollmentReport` |
+| `enrollmentReport` | `siteKey: String!`, `limit: Int` | `MfaWebauthnEnrollmentReport` — platform-wide, **server administrator only** |
 
 Example &mdash; enroll an authenticated user:
 
@@ -495,10 +519,29 @@ spent twice — not even by two simultaneous login attempts.
 A user who has lost **both** their authenticator device and their backup codes cannot sign
 in on an enforcing site. The recovery path is administrative:
 
-1. A **site administrator** opens the site's *MFA Community → Two-factor authentication*
-   administration page and uses **"Reset a user's MFA"** (GraphQL: `resetUserMfa(userId, siteKey)`).
-   A confirmation step guards the action; it clears the user's secret, backup codes,
-   grace tracking and any management lockout.
+1. A **server administrator** (root, or a user holding `administrationAccess` on the repository
+   root) opens the site's *MFA Community → Two-factor authentication* administration page and uses
+   **"Reset a user's MFA"** (GraphQL: `resetUserMfa(userId, siteKey)`). A confirmation step guards
+   the action; it clears the user's secret, backup codes, grace tracking and any management lockout.
+   The caller must also hold `siteAdminAccess` on the site named in the call, which frames and
+   audits the operation.
+
+   > **Server administration is required, and a site administrator alone can no longer reset
+   > anyone.** The reset runs on a *system* session — no JCR ACL constrains the subject — so the
+   > site named in the call must not be what authorizes it: any site administrator could otherwise
+   > clear `root`'s second factor and turn a phished password into a platform takeover. Restricting
+   > them to "their site's own users" (`/sites/<key>/users/…`) is not an option either: MFA state in
+   > these modules is stored on users resolved in the **global** `/users/` tree, so a site-scoped
+   > user cannot hold a factor here at all and that branch could only ever succeed silently on an
+   > account it never touched. Site administrators must escalate an MFA reset to a server
+   > administrator. The same reasoning applies to `resetUserWebauthn`.
+
+   > **Enrollment reports are server-administrator-only** for the same reason
+   > (`mfaTotp.enrollmentReport` / `mfaWebauthn.enrollmentReport`, the *Audit & reporting* page):
+   > enrollment is a global property and the report scans the whole repository, so a site
+   > administrator would otherwise obtain the MFA status of every account on the platform — a
+   > ready-made list of the accounts still protected by a password alone. Per-site **audit events**
+   > are unaffected and remain available to site administrators.
 2. The reset is recorded in the audit log (`reset` event, with the acting admin in the
    detail field) and visible under *MFA Community → Audit & reporting*.
 3. At next login the user enrolls again from scratch (new secret, new backup codes).

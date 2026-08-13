@@ -13,6 +13,7 @@ import org.jahia.modules.upa.mfa.MfaService;
 import org.jahia.modules.upa.mfa.MfaSession;
 import org.jahia.modules.upa.mfa.MfaFactorState;
 import org.jahia.modules.upa.mfa.extensions.BackupCodes;
+import org.jahia.modules.upa.mfa.extensions.MfaAdminAccess;
 import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
 import org.jahia.modules.upa.mfa.extensions.MfaForeignFactorDrain;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
@@ -647,7 +648,8 @@ public class TotpFactorMutation {
     @GraphQLName("resetUserMfa")
     @GraphQLDescription("Admin recovery: clear a user's TOTP enrollment (secret + backup codes) WITHOUT "
             + "requiring their code, for users who lost their device and backup codes. Caller must be a "
-            + "site administrator on the given site.")
+            + "site administrator on the given site AND a server administrator: every user that can hold "
+            + "TOTP in this module is a platform user, so the site alone never authorizes the subject.")
     public boolean resetUserMfa(
             @GraphQLName("userId") @GraphQLNonNull String userId,
             @GraphQLName("siteKey") @GraphQLNonNull String siteKey) {
@@ -655,17 +657,26 @@ public class TotpFactorMutation {
         if (StringUtils.isBlank(userId)) {
             throw new DataFetchingException("userId must not be blank");
         }
-        TotpAdminAccess.requireSiteAdmin(siteKey);
+        // Authorize the SUBJECT, not just the site: the writes below run against a system session on
+        // an unconstrained userId, so site administration alone would let the admin of any minor site
+        // strip root's second factor. The gate also RESOLVES the subject, with the very lookup the
+        // store below uses, and every write goes through that resolved id - authorization and action
+        // cannot land on two different accounts, and a userId the store could never find is reported
+        // instead of returning a misleading "true".
+        MfaAdminAccess.Subject subject = TotpAdminAccess.requireAdminForUser(userId, siteKey);
+        String target = subject.getUserId();
         String admin = currentUserName();
         try {
-            userStore.disable(userId);
-            userStore.clearGrace(userId);
-            rateLimiter.recordSuccess(userId); // clear any lockout state too
-            auditLog.recordEvent("reset", OUTCOME_SUCCESS, userId, siteKey, "by=" + admin);
-            logger.info("TOTP enrollment reset for user {} by admin {}", userId, admin);
+            userStore.disable(target);
+            userStore.clearGrace(target);
+            rateLimiter.recordSuccess(target); // clear any lockout state too
+            auditLog.recordEvent("reset", OUTCOME_SUCCESS, target, siteKey,
+                    "by=" + admin + ", path=" + subject.getUserPath());
+            logger.info("TOTP enrollment reset for user {} ({}) by admin {}", target,
+                    subject.getUserPath(), admin);
             return true;
         } catch (RepositoryException e) {
-            logger.warn("Failed to reset TOTP for user {}: {}", userId, e.getMessage());
+            logger.warn("Failed to reset TOTP for user {}: {}", target, e.getMessage());
             throw new DataFetchingException(ERROR_INTERNAL);
         }
     }

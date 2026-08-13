@@ -12,6 +12,7 @@ import org.jahia.modules.graphql.provider.dxm.osgi.annotations.GraphQLOsgiServic
 import org.jahia.modules.graphql.provider.dxm.util.ContextUtil;
 import org.jahia.modules.upa.mfa.MfaService;
 import org.jahia.modules.upa.mfa.MfaSession;
+import org.jahia.modules.upa.mfa.extensions.MfaAdminAccess;
 import org.jahia.modules.upa.mfa.extensions.MfaFactorDirectory;
 import org.jahia.modules.upa.mfa.extensions.MfaForeignFactorDrain;
 import org.jahia.modules.upa.mfa.extensions.MfaGlobalPolicy;
@@ -280,22 +281,33 @@ public class WebAuthnFactorMutation {
 
     @GraphQLField
     @GraphQLName("resetUserWebauthn")
-    @GraphQLDescription("Admin recovery: clear ALL of a user's WebAuthn credentials. Caller must be a site admin.")
+    @GraphQLDescription("Admin recovery: clear ALL of a user's WebAuthn credentials. Caller must be a site "
+            + "admin on the given site AND a server administrator: every user that can hold a passkey in "
+            + "this module is a platform user, so the site alone never authorizes the subject.")
     public boolean resetUserWebauthn(
             @GraphQLName("userId") @GraphQLNonNull String userId,
             @GraphQLName("siteKey") @GraphQLNonNull String siteKey) {
         if (StringUtils.isBlank(userId)) {
             throw new DataFetchingException("userId must not be blank");
         }
-        WebAuthnAdminAccess.requireSiteAdmin(siteKey);
+        // Authorize the SUBJECT, not just the site: the writes below run against a system session on
+        // an unconstrained userId, so site administration alone would let the admin of any minor site
+        // strip root's second factor. The gate also RESOLVES the subject, with the very lookup the
+        // store below uses, and every write goes through that resolved id - authorization and action
+        // cannot land on two different accounts, and a userId the store could never find is reported
+        // instead of returning a misleading "true".
+        MfaAdminAccess.Subject subject = WebAuthnAdminAccess.requireAdminForUser(userId, siteKey);
+        String target = subject.getUserId();
         String admin = currentUserName();
         try {
-            credentialStore.deleteAll(userId);
-            credentialStore.clearGrace(userId);
-            auditLog.recordEvent("reset", OUTCOME_SUCCESS, userId, siteKey, "by=" + admin);
+            credentialStore.deleteAll(target);
+            credentialStore.clearGrace(target);
+            rateLimiter.recordSuccess(target); // clear any management lockout too (mirrors TOTP's resetUserMfa)
+            auditLog.recordEvent("reset", OUTCOME_SUCCESS, target, siteKey,
+                    "by=" + admin + ", path=" + subject.getUserPath());
             return true;
         } catch (RepositoryException e) {
-            logger.warn("Failed to reset WebAuthn for {}: {}", userId, e.getMessage());
+            logger.warn("Failed to reset WebAuthn for {}: {}", target, e.getMessage());
             throw new DataFetchingException(ERROR_INTERNAL);
         }
     }

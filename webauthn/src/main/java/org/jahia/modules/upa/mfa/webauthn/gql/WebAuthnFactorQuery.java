@@ -99,13 +99,24 @@ public class WebAuthnFactorQuery {
         }
     }
 
+    /**
+     * The registration report is REPOSITORY-WIDE: {@code buildRegistrationReport} takes no site key
+     * and scans every {@code jnt:user}, because a passkey is a global property of the account. Site
+     * administration is therefore not a sufficient right for it &mdash; gated on the site alone, it
+     * handed the administrator of any minor site the MFA status of every account on the platform
+     * ({@code root} included), i.e. a target list of the accounts still protected by a password
+     * alone. The site is still checked (it frames the request and keeps a meaningful error for a
+     * bogus site key), but the platform-wide answer needs platform-wide rights.
+     */
     @GraphQLField
     @GraphQLName("enrollmentReport")
-    @GraphQLDescription("Who has / hasn't registered a WebAuthn authenticator. Caller must be a site admin.")
+    @GraphQLDescription("Who has / hasn't registered a WebAuthn authenticator. The report covers the "
+            + "whole platform, so it requires server-administrator access.")
     public WebAuthnEnrollmentReportResult enrollmentReport(
             @GraphQLName("siteKey") @GraphQLNonNull String siteKey,
             @GraphQLName("limit") Integer limit) {
         WebAuthnAdminAccess.requireSiteAdmin(siteKey);
+        WebAuthnAdminAccess.requireServerAdmin();
         try {
             int cap = limit == null ? DEFAULT_REPORT_LIMIT : limit;
             return new WebAuthnEnrollmentReportResult(credentialStore.buildRegistrationReport(cap));
