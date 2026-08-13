@@ -11,7 +11,10 @@ import org.slf4j.LoggerFactory;
 import javax.servlet.http.HttpServletRequest;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -45,9 +48,34 @@ public class MfaEnforcementDecider {
 
     private static final Logger logger = LoggerFactory.getLogger(MfaEnforcementDecider.class);
 
+    /** How long a given (factor, user, site) override warning is suppressed after being emitted. */
+    private static final long SITE_SCOPE_WARNING_WINDOW_MILLIS = TimeUnit.MINUTES.toMillis(15);
+
+    /**
+     * Cap on {@link #siteScopeWarningLastEmittedMillis}: the key is derived from the (attacker-
+     * influenced) sign-in user id, so the de-duplication cache must be bounded, not a plain
+     * unbounded map, or a flood of distinct user ids on the login path could grow it without limit.
+     */
+    private static final int MAX_TRACKED_SITE_SCOPE_WARNINGS = 2_000;
+
     private final MfaGlobalPolicy globalPolicy;
     private final MfaService mfaService;
     private final List<MfaSiteProvider> siteProviders;
+
+    /**
+     * Bounded LRU de-duplication for {@link #reportSiteScopeOverrideIfDue}: the eldest entry is
+     * evicted once the map exceeds {@link #MAX_TRACKED_SITE_SCOPE_WARNINGS}, and {@code true} in
+     * the {@link LinkedHashMap} constructor keeps it in ACCESS order so a key that keeps recurring
+     * is the last one evicted. {@link Collections#synchronizedMap} because {@link #prepare} runs
+     * concurrently across sign-ins.
+     */
+    private final Map<String, Long> siteScopeWarningLastEmittedMillis =
+            Collections.synchronizedMap(new LinkedHashMap<String, Long>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+                    return size() > MAX_TRACKED_SITE_SCOPE_WARNINGS;
+                }
+            });
 
     public MfaEnforcementDecider(MfaGlobalPolicy globalPolicy, MfaService mfaService,
                                  List<MfaSiteProvider> siteProviders) {
@@ -197,18 +225,23 @@ public class MfaEnforcementDecider {
         boolean enforced = globalPolicy.isEnforced(factorType);
 
         if (StringUtils.isNotBlank(siteKey)) {
-            // Single site-settings snapshot: the enabled check and the group/scope check must read
-            // the SAME snapshot. It is loaded for an enforced factor too - not to decide anything
-            // (the enforced rows below apply regardless of the site) but so an overridden per-site
-            // scope is REPORTED rather than silently discarded.
-            SiteApplicability applicability = callbacks.siteApplicability(userId, siteKey);
             if (enforced) {
-                warnIfSiteScopeOverridden(applicability, factorType, userId, siteKey);
-            } else if (!applicability.isApplicable() && !callbacks.isConfiguredForUser(userId)) {
-                logger.debug("{} skipped for user {} (site '{}' not applicable: disabled or not in scope, "
-                        + "the factor is not globally enforced, and the user does not own it)",
-                        factorType, userId, siteKey);
-                return callbacks.buildSkippedPreparation();
+                // The enforced rows below apply regardless of what the site says, so the per-site
+                // read is NOT on the decision path here - it exists only so an overridden group
+                // scope can be REPORTED. reportSiteScopeOverrideIfDue keeps it that way: it can
+                // never throw out of prepare(), and it is throttled so it does not become an
+                // unconditional per-sign-in JCR dependency for a log line (see its javadoc).
+                reportSiteScopeOverrideIfDue(callbacks, userId, siteKey, factorType);
+            } else {
+                // Single site-settings snapshot: the enabled check and the group/scope check must
+                // read the SAME snapshot.
+                SiteApplicability applicability = callbacks.siteApplicability(userId, siteKey);
+                if (!applicability.isApplicable() && !callbacks.isConfiguredForUser(userId)) {
+                    logger.debug("{} skipped for user {} (site '{}' not applicable: disabled or not in scope, "
+                            + "the factor is not globally enforced, and the user does not own it)",
+                            factorType, userId, siteKey);
+                    return callbacks.buildSkippedPreparation();
+                }
             }
             return prepareForSite(preparationContext, userId, siteKey, callbacks);
         }
@@ -354,21 +387,66 @@ public class MfaEnforcementDecider {
     }
 
     /**
+     * Diagnostics-only wrapper around {@link FactorEnforcementCallbacks#siteApplicability} for a
+     * globally enforced factor. {@link #prepare} never uses the result to decide anything for an
+     * enforced factor - it exists solely so an overridden per-site group scope is REPORTED instead
+     * of silently discarded - which is why this method must satisfy two guarantees the decision
+     * rows above it do not need to:
+     * <ul>
+     *   <li><b>it must never fail the sign-in.</b> The read can be backed by a JCR group-membership
+     *       query (a non-empty {@code enabledGroups}) and can THROW on a repository hiccup; since
+     *       the enforced rows never consult its result, propagating that failure out of
+     *       {@link #prepare} would deny a login for a reason the factor's actual decision does not
+     *       depend on. Caught here and demoted to a {@code debug} line instead;</li>
+     *   <li><b>it must not run when it has nothing new to say.</b> Without throttling, this read -
+     *       and the WARN line it can produce - would repeat on every sign-in of every out-of-scope
+     *       user: exactly the "would drown the log" problem {@link #prepareForSite} already avoids
+     *       for the disabled-site case by reporting it once, on the path that actually denies
+     *       something ({@link #logEnrollmentOfferedOnDisabledSite}). {@link
+     *       #siteScopeWarningLastEmittedMillis} is the equivalent bounded, per-(factor, user, site)
+     *       de-duplication for this case, which has no such path to piggy-back on.
+     * </ul>
+     */
+    private void reportSiteScopeOverrideIfDue(FactorEnforcementCallbacks callbacks, String userId, String siteKey,
+                                              String factorType) {
+        String key = factorType + '|' + userId + '|' + siteKey;
+        long now = System.currentTimeMillis();
+        Long lastEmitted = siteScopeWarningLastEmittedMillis.get(key);
+        if (lastEmitted != null && (now - lastEmitted) < SITE_SCOPE_WARNING_WINDOW_MILLIS) {
+            return; // already reported for this exact (factor, user, site) recently; nothing new to say
+        }
+        try {
+            if (warnIfSiteScopeOverridden(callbacks.siteApplicability(userId, siteKey), factorType, userId, siteKey)) {
+                siteScopeWarningLastEmittedMillis.put(key, now);
+            }
+        } catch (MfaException e) {
+            // Fails OPEN for the sign-in on purpose (see the guarantees above): the enforced rows in
+            // prepare() do not need this read to have succeeded, so a repository hiccup here must
+            // not turn into a denied login. Kept at debug, not warn - an operator chasing THIS
+            // failure is chasing the repository health issue e.getCode() already points at, not a
+            // login problem.
+            logger.debug("Could not read the per-site scope for {}/{}/{}: {}", factorType, userId, siteKey,
+                    e.getCode());
+        }
+    }
+
+    /**
      * Report a per-site scope that global enforcement just overrode. Only the GROUP scope is warned
      * about here: a site that merely has the factor disabled is already reported, once, on the path
-     * that actually denies something ({@link #logEnrollmentOfferedOnDisabledSite}), and repeating it
-     * for every sign-in would drown the log.
+     * that actually denies something ({@link #logEnrollmentOfferedOnDisabledSite}).
      * <p>
      * The group case has no other reporting point &mdash; the user is simply enrolled/challenged as
      * if {@code enabledGroups} were empty &mdash; so an operator who configured "enforce TOTP
      * platform-wide, scoped to group staff per site" would otherwise see every user of every site
      * pushed into enrollment with nothing in the log to explain it. See {@link SiteApplicability}
      * for why the scope cannot simply be honoured.
+     *
+     * @return whether a WARN line was actually emitted (so the caller only throttles real warnings).
      */
-    private void warnIfSiteScopeOverridden(SiteApplicability applicability, String factorType,
-                                           String userId, String siteKey) {
+    private boolean warnIfSiteScopeOverridden(SiteApplicability applicability, String factorType,
+                                              String userId, String siteKey) {
         if (!applicability.isEnabledForSite() || applicability.isUserInScope()) {
-            return;
+            return false;
         }
         logger.warn("User {} is OUTSIDE the '{}' policy groups configured on site '{}' "
                 + "({}.enabledGroups), but '{}' is listed in the global enforcedFactors: the "
@@ -376,6 +454,7 @@ public class MfaEnforcementDecider {
                 + "sign-in (the site key is client-supplied, so it may never release an enforced "
                 + "factor). Remove '{}' from enforcedFactors if only some users must own it.",
                 userId, factorType, siteKey, factorType, factorType, factorType);
+        return true;
     }
 
     /**

@@ -302,6 +302,7 @@ public class WebAuthnFactorMutation {
         try {
             credentialStore.deleteAll(target);
             credentialStore.clearGrace(target);
+            rateLimiter.recordSuccess(target); // clear any management lockout too (mirrors TOTP's resetUserMfa)
             auditLog.recordEvent("reset", OUTCOME_SUCCESS, target, siteKey,
                     "by=" + admin + ", path=" + subject.getUserPath());
             return true;

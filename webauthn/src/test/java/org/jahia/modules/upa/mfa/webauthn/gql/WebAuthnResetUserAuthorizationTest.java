@@ -3,6 +3,7 @@ package org.jahia.modules.upa.mfa.webauthn.gql;
 import org.jahia.modules.graphql.provider.dxm.DataFetchingException;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnAuditLog;
 import org.jahia.modules.upa.mfa.webauthn.WebAuthnCredentialStore;
+import org.jahia.modules.upa.mfa.webauthn.WebAuthnManagementRateLimiter;
 import org.jahia.services.content.JCRNodeWrapper;
 import org.jahia.services.content.JCRSessionFactory;
 import org.jahia.services.content.JCRSessionWrapper;
@@ -61,7 +62,8 @@ public class WebAuthnResetUserAuthorizationTest {
     @Test
     public void serverAdministratorMayResetAGlobalUser() throws Exception {
         WebAuthnCredentialStore credentialStore = mock(WebAuthnCredentialStore.class);
-        WebAuthnFactorMutation mutation = mutationWith(credentialStore);
+        WebAuthnManagementRateLimiter rateLimiter = mock(WebAuthnManagementRateLimiter.class);
+        WebAuthnFactorMutation mutation = mutationWith(credentialStore, rateLimiter);
 
         try (MockedStatic<JCRSessionFactory> sessions = jahiaSession(true);
              MockedStatic<JahiaUserManagerService> users = globalUser("root", "/users/ro/ot/root")) {
@@ -70,6 +72,9 @@ public class WebAuthnResetUserAuthorizationTest {
 
         verify(credentialStore).deleteAll("root");
         verify(credentialStore).clearGrace("root");
+        // README-documented behaviour (mirrors TOTP's resetUserMfa): the reset also clears any
+        // pre-auth registration lockout, so a locked-out user is not left stuck after a green reset.
+        verify(rateLimiter).recordSuccess("root");
     }
 
     @Test
@@ -120,9 +125,15 @@ public class WebAuthnResetUserAuthorizationTest {
     // --- fixtures ---------------------------------------------------------------------------
 
     private static WebAuthnFactorMutation mutationWith(WebAuthnCredentialStore credentialStore) {
+        return mutationWith(credentialStore, mock(WebAuthnManagementRateLimiter.class));
+    }
+
+    private static WebAuthnFactorMutation mutationWith(WebAuthnCredentialStore credentialStore,
+                                                        WebAuthnManagementRateLimiter rateLimiter) {
         WebAuthnFactorMutation mutation = new WebAuthnFactorMutation();
         mutation.setCredentialStore(credentialStore);
         mutation.setAuditLog(mock(WebAuthnAuditLog.class));
+        mutation.setRateLimiter(rateLimiter);
         return mutation;
     }
 

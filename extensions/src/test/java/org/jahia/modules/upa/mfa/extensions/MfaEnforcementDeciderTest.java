@@ -155,7 +155,8 @@ public class MfaEnforcementDeciderTest {
         // enrolled/challenged anyway, because enabledGroups is per-site data selected by a
         // CLIENT-SUPPLIED site key - honouring it would re-open the bypass through another door.
         // The override must at least be OBSERVED (the decider loads the per-site snapshot and can
-        // therefore warn about it) instead of being discarded unseen.
+        // therefore warn about it) instead of being discarded unseen. It is diagnostics-only, though
+        // (see the next test): the enforced rows below never consult the result.
         configurePolicy("totp", 0);
         callbacks.enabledForSite = true;
         callbacks.userInScope = false; // the user is not in the site's policy groups
@@ -167,6 +168,26 @@ public class MfaEnforcementDeciderTest {
         assertTrue("the per-site snapshot must be consulted even for an enforced factor, so an "
                 + "overridden group scope can be reported instead of silently discarded",
                 callbacks.siteConsulted);
+    }
+
+    @Test
+    public void enforcedFactor_siteApplicabilityThrows_stillChallengesTheConfiguredUser() throws Exception {
+        // Regression for the diagnostic-fails-closed bug: for an enforced factor, siteApplicability
+        // is consulted ONLY so an overridden group scope can be logged - prepare()'s own decision
+        // never depends on it. A provider whose read throws (e.g. a JCR RepositoryException from the
+        // group-membership lookup backing it) must therefore never turn into a denied sign-in for a
+        // user this factor's actual rows would otherwise challenge without any trouble.
+        configurePolicy("totp", 0);
+        callbacks.enabledForSite = true;
+        callbacks.userInScope = false;
+        callbacks.configured = true;
+        callbacks.throwOnSiteApplicability = true;
+
+        Serializable prep = decider().prepare(ctx(), callbacks);
+
+        assertFalse("a diagnostic-only read failing must never deny a sign-in the decision does not "
+                + "need it for", isSkipped(prep));
+        assertTrue("the challenge preparation is still the one built", prep instanceof ChallengePreparation);
     }
 
     @Test
@@ -352,6 +373,8 @@ public class MfaEnforcementDeciderTest {
         boolean graceConsulted;
         /** Whether the decider loaded the per-site snapshot at all (it must, even when enforced). */
         boolean siteConsulted;
+        /** When true, {@link #siteApplicability} throws instead of returning - simulates a JCR failure. */
+        boolean throwOnSiteApplicability;
 
         @Override
         public String factorType() {
@@ -395,8 +418,12 @@ public class MfaEnforcementDeciderTest {
         }
 
         @Override
-        public MfaEnforcementDecider.SiteApplicability siteApplicability(String userId, String siteKey) {
+        public MfaEnforcementDecider.SiteApplicability siteApplicability(String userId, String siteKey)
+                throws MfaException {
             siteConsulted = true;
+            if (throwOnSiteApplicability) {
+                throw new MfaException("factor.test.internal_error", "user", userId);
+            }
             return new MfaEnforcementDecider.SiteApplicability(enabledForSite, userInScope);
         }
 
