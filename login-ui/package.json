@@ -28,7 +28,7 @@
     "@jahia/javascript-modules-library": "^0.9.2",
     "@jahia/vite-plugin": "^0.9.2",
     "@types/react": "^19.1.2",
-    "i18next": "^26.3.4",
+    "i18next": "^26.3.6",
     "jsdom": "^26.0.0",
     "react": "^19.1.0",
     "react-i18next": "^15.7.4",
