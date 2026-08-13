@@ -307,6 +307,47 @@ The hard gate is **off by default**: enabling it with an empty whitelist locks e
 enrollment — set the whitelist first, then flip `loginGate.enabled=true`. JCR errors fail
 **closed** (request blocked).
 
+#### Known limitation: the gate only acts while `enforcedFactors` is non-empty
+
+`MfaLoginGateDecision.isGated()` starts by asking `MfaGlobalPolicy.isEnforcementActive()`, and
+that method is nothing more than `!enforcedFactors.isEmpty()`. When it answers `false` the
+decision returns immediately, so **both** access points that share it — the valve *and* the
+filter — let the request through untouched. With no globally enforced factor, `/cms/login` is
+not gated at all.
+
+That is worth spelling out for a deployment that uses the **per-site opt-in without global
+enforcement**: `enforcedFactors` empty, `totp.enabled=true` on a site. Such a deployment does
+get real MFA on the path it advertises — a user who enrolled is genuinely challenged when they
+sign in through the MFA login UI, because the enforcement decider builds a challenge for any
+user who *owns* the factor, enforced or not. But `/cms/login` remains a password-only door for
+that same user: anyone holding their password can authenticate there and receive a full Jahia
+session, with no second factor. And that session is **global**, not scoped to the site — the
+same property that makes one enforcing site enough to gate the endpoint makes one un-gated
+password login enough to reach every site.
+
+**`loginGate.enabled=true` does not close this.** The switch is read as
+`MfaLoginGateDecision.isHardGateEnabled()`, and the filter only consults it *after* `isGated()`
+has already returned `true`; the valve never reads it at all. With `enforcedFactors` empty the
+gate returns before that switch is ever reached, so setting it changes nothing. The same goes
+for `loginGate.ipWhitelist` and the automatic/hard modes above — they only describe what happens
+to a request the gate has already decided to block.
+
+This is the gate's designed scope rather than an oversight: it was built as the counterpart of
+global enforcement, and `/cms/login` is a platform-wide endpoint, so gating it off one site's
+*optional* feature would refuse the endpoint for everyone on the strength of a setting that is
+explicitly opt-in. It is a real exposure nonetheless, so choose deliberately:
+
+- **If you want `/cms/login` protected, use global enforcement** — list the factor in
+  `enforcedFactors` (PID `org.jahia.modules.mfa.extensions`). That is the switch that arms the
+  gate. Per-site `<factor>.enabled` / `enabledGroups` keep their other effects (who is offered
+  the factor for enrollment, who the login UI proposes it to), so this is not the same thing as
+  making the factor mandatory for every user everywhere — read *Global enforcement* above for
+  what enforcement does to users who own nothing yet (`graceDays`, inline enrollment).
+- **If you want to keep the pure per-site opt-in, close the endpoint outside Jahia** — point
+  users at the MFA login UI (`loginUrl`, global or per-site) and refuse `/cms/login` at the
+  reverse proxy for everyone but your admin/VPN range. Do not rely on `loginGate.*` for this;
+  with `enforcedFactors` empty those keys are inert.
+
 #### Gating `Authorization: Basic` (optional)
 
 `/cms/login` is not the only way a password authenticates without MFA. Jahia's
