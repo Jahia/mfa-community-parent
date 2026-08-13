@@ -7,4 +7,35 @@
 # setup, never for production) lets those calls through; the MFA gates still deny as designed.
 - karafCommand: "log:log 'START - MFA test provisioning'"
 - karafCommand: "config:property-set -p org.jahia.bundles.api.security security.profile open"
+
+# Mail, for the specs that read a one-time code out of Mailpit (ui.emailFactor) or assert that a
+# reset request was notified (ui.resetRequest).
+#
+# As of Jahia 8.2.4.0 mail delivery lives in a SEPARATE module and is configured through an OSGi
+# PID. The old org.jahia.services.mail.MailService.store(MailSettings) API still compiles and still
+# returns without throwing, but it persists NOTHING:
+#
+#   WARN [MailServiceImpl] - MailServiceImpl.store(MailSettings) is deprecated and no longer
+#                            persists anything; configure mail via the OSGi
+#                            org.jahia.modules.mail configuration instead.
+#   WARN [MailServiceImpl] - No mail-service module is installed/configured; message not sent.
+#
+# sendMessage() then also returns successfully while delivering nothing, so the failure is
+# completely silent from the caller's side - the email specs simply time out waiting for a mail
+# that was never sent. Hence both halves below: install the module, then configure the PID.
+- installBundle: "mvn:org.jahia.modules/mail-service/1.0.0-SNAPSHOT"
+  autoStart: true
+- editConfiguration: "org.jahia.modules.mail"
+  properties:
+    disabled: "false"
+    # The Compose service name; see docker-compose.yml (smtp-server = Mailpit).
+    smtp.host: "smtp-server"
+    smtp.port: "1025"
+    # Mailpit accepts anonymous plaintext SMTP - no auth, no TLS.
+    smtp.auth: "false"
+    smtp.starttls: "false"
+    smtp.ssl: "false"
+    default.from: "noreply@smtp-server.localhost"
+    default.recipient: "admin@smtp-server.localhost"
+
 - karafCommand: "log:log 'END - MFA test provisioning'"
