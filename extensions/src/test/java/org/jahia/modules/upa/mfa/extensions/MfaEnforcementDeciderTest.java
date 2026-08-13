@@ -24,18 +24,23 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
- * The ORDER of the two independent switches the shared orchestration combines: the GLOBAL
- * enforcement policy ({@link MfaGlobalPolicy}) and the PER-SITE activation
- * ({@link MfaEnforcementDecider.FactorEnforcementCallbacks#isSiteApplicable}).
+ * How the shared orchestration combines the GLOBAL enforcement policy ({@link MfaGlobalPolicy}) with
+ * the PER-SITE switches
+ * ({@link MfaEnforcementDecider.FactorEnforcementCallbacks#siteApplicability}: the site's
+ * {@code enabled} flag and the user's membership of its {@code enabledGroups}).
  * <p>
  * Per-site activation is an opt-IN switch: it may bring a non-enforced factor into play for a site,
- * and it may keep such a factor out of the way &mdash; but it must never opt a globally enforced
- * factor OUT. Evaluating it first turned it into an opt-out, and the site key is CLIENT-SUPPLIED on
- * the {@code mfaInitiate} entry point: a caller who had only proven the password named a site where
- * the factor is not enabled (e.g. {@code systemsite}) and got a "skipped" preparation for a factor
- * the platform globally enforces &mdash; and a skipped preparation is accepted by {@code verify}
- * for ANY submission, including an empty code. These tests pin the fixed ordering while keeping the
- * legitimate opt-in row (site disabled + factor NOT enforced &rarr; skip) intact.
+ * and it may keep such a factor out of the way for a user who does not own it &mdash; but it may
+ * never opt OUT a globally enforced factor, nor a factor the user is ENROLLED in. The site key is
+ * CLIENT-SUPPLIED on the {@code mfaInitiate} entry point and a "skipped" preparation is accepted by
+ * {@code verify} for ANY submission (an empty code included), so every row a per-site switch is
+ * allowed to decide is a row where there is nothing to challenge. These tests pin both halves:
+ * <ul>
+ *   <li>enforced factor + non-applicable site &rarr; the enforced rows still run (the first bypass);</li>
+ *   <li>NON-enforced factor + non-applicable site + ENROLLED user &rarr; challenge (the second);</li>
+ *   <li>NON-enforced factor + non-applicable site + user who owns nothing &rarr; skip (the
+ *       legitimate opt-in, intact).</li>
+ * </ul>
  */
 public class MfaEnforcementDeciderTest {
 
@@ -62,7 +67,7 @@ public class MfaEnforcementDeciderTest {
     @Test
     public void enforcedFactor_isChallengedEvenWhereTheSiteHasItDisabled() throws Exception {
         configurePolicy("totp", 0);
-        callbacks.siteApplicable = false; // the named site has no TOTP configuration
+        callbacks.enabledForSite = false; // the named site has no TOTP configuration
         callbacks.configured = true;      // ...but the user IS enrolled
 
         Serializable prep = decider().prepare(ctx(), callbacks);
@@ -75,7 +80,7 @@ public class MfaEnforcementDeciderTest {
     @Test
     public void enforcedFactor_notConfigured_noGrace_blocksInsteadOfSkipping() {
         configurePolicy("totp", 0);
-        callbacks.siteApplicable = false;
+        callbacks.enabledForSite = false;
         callbacks.configured = false; // root NOT enrolled, exactly the reproduced case
 
         try {
@@ -94,7 +99,7 @@ public class MfaEnforcementDeciderTest {
         // sign-in. Enforcement is platform-wide, so the per-site switch must not filter the offer
         // either - otherwise the security fix trades a bypass for a lockout.
         configurePolicy("totp", 0);
-        callbacks.siteApplicable = false;
+        callbacks.enabledForSite = false;
         callbacks.configured = false;
         siteProviders.add(disabledOnSiteProvider("totp"));
 
@@ -113,29 +118,85 @@ public class MfaEnforcementDeciderTest {
         // Grace is the ONLY reason an unenrolled user may pass while enforcement is on; it must
         // still be the grace path that decides it, not the per-site switch.
         configurePolicy("totp", 7);
-        callbacks.siteApplicable = false;
+        callbacks.enabledForSite = false;
         callbacks.configured = false;
 
         assertTrue(isSkipped(decider().prepare(ctx(), callbacks)));
         assertTrue("the decision must come from the grace window", callbacks.graceConsulted);
     }
 
+    // --- The second half of the bypass: an ENROLLED user is never released by the site ----------
+
+    @Test
+    public void notEnforcedFactor_enrolledUser_isChallengedEvenWhereTheSiteHasItDisabled() throws Exception {
+        // The same client-supplied site key, one configuration lower: UPA has mfaEnabledFactors=totp
+        // but enforcedFactors is EMPTY (the documented per-site opt-in). The user IS enrolled and is
+        // normally challenged on their own site; naming a site where TOTP is not enabled must not
+        // hand them a skipped preparation, because verify() accepts ANY submission for it - an empty
+        // code included. A per-site switch may release a user who owns NOTHING to challenge; it may
+        // never release one who owns the factor.
+        configurePolicy("", 0);
+        callbacks.enabledForSite = false; // the named site has no TOTP configuration
+        callbacks.configured = true;      // ...but the user IS enrolled
+
+        Serializable prep = decider().prepare(ctx(), callbacks);
+
+        assertFalse("an enrolled user must be challenged whatever site the request names",
+                isSkipped(prep));
+        assertTrue("the challenge preparation is the one built", prep instanceof ChallengePreparation);
+    }
+
+    // --- Group scoping under enforcement: overridden, but never silently -----------------------
+
+    @Test
+    public void enforcedFactor_outOfTheSitesGroupScope_isChallengedAndTheOverrideIsObserved() throws Exception {
+        // "Enforce TOTP platform-wide, scoped to group staff per site" is a configuration operators
+        // write, and global enforcement overrides it: a user outside the site's enabledGroups is
+        // enrolled/challenged anyway, because enabledGroups is per-site data selected by a
+        // CLIENT-SUPPLIED site key - honouring it would re-open the bypass through another door.
+        // The override must at least be OBSERVED (the decider loads the per-site snapshot and can
+        // therefore warn about it) instead of being discarded unseen.
+        configurePolicy("totp", 0);
+        callbacks.enabledForSite = true;
+        callbacks.userInScope = false; // the user is not in the site's policy groups
+        callbacks.configured = true;
+
+        Serializable prep = decider().prepare(ctx(), callbacks);
+
+        assertFalse("global enforcement still wins over the per-site group scope", isSkipped(prep));
+        assertTrue("the per-site snapshot must be consulted even for an enforced factor, so an "
+                + "overridden group scope can be reported instead of silently discarded",
+                callbacks.siteConsulted);
+    }
+
+    @Test
+    public void notEnforcedFactor_outOfTheSitesGroupScope_stillSkipsAnUnconfiguredUser() throws Exception {
+        // The group scope keeps its full effect where it is safe: an OPTIONAL factor the user does
+        // not own. Nothing can be challenged, so the site's scoping decides.
+        configurePolicy("", 0);
+        callbacks.enabledForSite = true;
+        callbacks.userInScope = false;
+        callbacks.configured = false;
+
+        assertTrue(isSkipped(decider().prepare(ctx(), callbacks)));
+    }
+
     // --- The legitimate opt-in behaviour must keep working -------------------------------------
 
     @Test
-    public void notEnforcedFactor_isStillSkippedWhereTheSiteHasItDisabled() throws Exception {
+    public void notEnforcedFactor_unconfiguredUser_isStillSkippedWhereTheSiteHasItDisabled() throws Exception {
         configurePolicy("", 0);
-        callbacks.siteApplicable = false;
-        callbacks.configured = true; // even an enrolled user: the site simply does not use TOTP
+        callbacks.enabledForSite = false;
+        callbacks.configured = false; // nothing to challenge: the site simply does not use TOTP
 
-        assertTrue("per-site disablement still opts a NON-enforced factor out",
-                isSkipped(decider().prepare(ctx(), callbacks)));
+        assertTrue("per-site disablement still opts a NON-enforced factor out for a user who does "
+                        + "not own it", isSkipped(decider().prepare(ctx(), callbacks)));
     }
 
     @Test
     public void notEnforcedFactor_applicableSite_configuredUser_isChallenged() throws Exception {
         configurePolicy("", 0);
-        callbacks.siteApplicable = true;
+        callbacks.enabledForSite = true;
         callbacks.configured = true;
 
         assertFalse(isSkipped(decider().prepare(ctx(), callbacks)));
@@ -146,7 +207,7 @@ public class MfaEnforcementDeciderTest {
     @Test
     public void enforcedFactor_genuinelyVerifiedSibling_stillReleasesThisFactor() throws Exception {
         configurePolicy("totp,webauthn", 0);
-        callbacks.siteApplicable = false;
+        callbacks.enabledForSite = false;
         callbacks.configured = true;
         session.getOrCreateFactorState("webauthn").setVerified(true);
 
@@ -160,7 +221,7 @@ public class MfaEnforcementDeciderTest {
         // was never challenged, so it must not excuse this factor - even now that the per-site
         // switch no longer hides the decision.
         configurePolicy("totp,webauthn", 0);
-        callbacks.siteApplicable = false;
+        callbacks.enabledForSite = false;
         callbacks.configured = false;
         session.getOrCreateFactorState("webauthn").setPreparationResult(new SkippedPreparation());
         session.getOrCreateFactorState("webauthn").setVerified(true);
@@ -178,7 +239,7 @@ public class MfaEnforcementDeciderTest {
         // Pick-one: the user owns the OTHER enforced factor, so this one steps aside (they will
         // verify with the sibling) - the site the request names is irrelevant to that row too.
         configurePolicy("totp,webauthn", 0);
-        callbacks.siteApplicable = false;
+        callbacks.enabledForSite = false;
         callbacks.configured = false;
         siteProviders.add(siblingProvider("webauthn", true));
 
@@ -283,9 +344,14 @@ public class MfaEnforcementDeciderTest {
 
         static final String ERROR_ENROLLMENT_REQUIRED = "factor.test.enrollment_required";
 
-        boolean siteApplicable = true;
+        /** The site's {@code <factor>.enabled} flag. */
+        boolean enabledForSite = true;
+        /** Whether the user is inside the site's {@code <factor>.enabledGroups} scope. */
+        boolean userInScope = true;
         boolean configured;
         boolean graceConsulted;
+        /** Whether the decider loaded the per-site snapshot at all (it must, even when enforced). */
+        boolean siteConsulted;
 
         @Override
         public String factorType() {
@@ -329,8 +395,9 @@ public class MfaEnforcementDeciderTest {
         }
 
         @Override
-        public boolean isSiteApplicable(String userId, String siteKey) {
-            return siteApplicable;
+        public MfaEnforcementDecider.SiteApplicability siteApplicability(String userId, String siteKey) {
+            siteConsulted = true;
+            return new MfaEnforcementDecider.SiteApplicability(enabledForSite, userInScope);
         }
 
         @Override

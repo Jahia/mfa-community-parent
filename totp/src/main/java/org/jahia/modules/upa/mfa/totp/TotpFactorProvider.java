@@ -172,15 +172,20 @@ public class TotpFactorProvider implements MfaFactorProvider {
             }
 
             @Override
-            public boolean isSiteApplicable(String userId, String siteKey) throws MfaException {
-                // Load the per-site settings ONCE and check both enabled and group scope against
-                // that single snapshot.
+            public MfaEnforcementDecider.SiteApplicability siteApplicability(String userId, String siteKey)
+                    throws MfaException {
+                // Load the per-site settings ONCE and read both switches (enabled + group scope)
+                // off that single snapshot; the decider keeps them apart so it can report which
+                // one global enforcement overrode.
                 TotpSiteSettingsStore.TotpSiteSettings settings = siteSettingsStore.load(siteKey);
                 if (!settings.isEnabled()) {
-                    return false;
+                    // The group scope is irrelevant on a disabled site - and skipping the JCR
+                    // membership read here keeps the disabled case as cheap as it was.
+                    return new MfaEnforcementDecider.SiteApplicability(false, true);
                 }
                 try {
-                    return userStore.isMemberOfAnyGroup(userId, settings.getEnabledGroups());
+                    return new MfaEnforcementDecider.SiteApplicability(true,
+                            userStore.isMemberOfAnyGroup(userId, settings.getEnabledGroups()));
                 } catch (RepositoryException e) {
                     logger.warn("Failed to check group membership for user {}: {}", userId, e.getMessage());
                     throw new MfaException(ERROR_INTERNAL);

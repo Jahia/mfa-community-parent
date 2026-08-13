@@ -25,13 +25,18 @@ final class TotpAdminAccess {
         return MfaAdminAccess.requireSiteAdmin(siteKey, ERROR_PREFIX);
     }
 
+    /** Require server administration for a platform-wide read (the enrollment report). */
+    static JCRSessionWrapper requireServerAdmin() {
+        return MfaAdminAccess.requireServerAdmin(ERROR_PREFIX);
+    }
+
     /**
-     * Require site administration on {@code siteKey} AND authorization over the target user for an
-     * operation that acts on that user with a system session (the admin reset). The site alone
-     * never authorizes a subject outside its own user tree &mdash; see
-     * {@link MfaAdminAccess#requireSiteAdminForUser}.
+     * Authorize an operation that acts on a target user with a system session (the admin reset) and
+     * resolve that user once, with the same global lookup {@link org.jahia.modules.upa.mfa.totp.TotpUserStore}
+     * uses &mdash; see {@link MfaAdminAccess#requireAdminForUser} for why site administration alone
+     * never authorizes such a subject.
      */
-    static JCRSessionWrapper requireSiteAdminForUser(String userId, String siteKey) {
-        return MfaAdminAccess.requireSiteAdminForUser(userId, siteKey, ERROR_PREFIX);
+    static MfaAdminAccess.Subject requireAdminForUser(String userId, String siteKey) {
+        return MfaAdminAccess.requireAdminForUser(userId, siteKey, ERROR_PREFIX);
     }
 }
