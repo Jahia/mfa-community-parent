@@ -17,10 +17,22 @@ import org.slf4j.LoggerFactory;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.Locale;
 
 /**
- * Closes the password-only {@code /cms/login} MFA bypass at its root: a Jahia authentication valve
- * inserted BEFORE the default password-login valve ({@code LoginEngineAuthValve}).
+ * Applies the MFA gate to a password login inside Jahia's authentication pipeline: a Jahia
+ * authentication valve registered FIRST in that pipeline, ahead of every valve that consumes
+ * credentials.
+ * <p>
+ * <b>Which credential shapes the gate covers.</b> A password reaches the pipeline in two shapes, and
+ * a different valve consumes each one: the {@code username}/{@code password} form parameters of a
+ * {@code /cms/login} POST ({@code LoginEngineAuthValve}), and an {@code Authorization: Basic} header
+ * on any endpoint ({@code HttpBasicAuthValve}, enabled by default). Both are a single factor, so both
+ * are gated here. Sitting at position 0 is what makes that possible - the gate is ahead of both
+ * consumers, whichever one a request is heading for. A header-borne credential is answered with
+ * {@code 403} rather than a redirect: the caller is a non-interactive client, which has no login page
+ * to follow. Token credentials ({@code TokenAuthValve}, personal access tokens) are a different
+ * policy question and are not gated here.
  * <p>
  * <b>Why a valve and not just the servlet filter?</b> Jahia authenticates a {@code /cms/login} POST
  * inside its authentication pipeline, and that pipeline runs BEFORE module servlet filters. So a
@@ -28,10 +40,10 @@ import java.io.IOException;
  * {@link MfaLoginGateFilter} ever runs - the filter can then only redirect the <i>response</i>,
  * while the session is already authenticated. The result is that a password-only {@code /cms/login}
  * POST fully bypasses MFA on an enforcing site (the filter appears to gate GET only because a GET
- * carries no credentials to authenticate). Running as a valve positioned before
- * {@code LoginEngineAuthValve}, this component can short-circuit the pipeline and block the login
- * BEFORE any authentication happens. The servlet filter stays as defense-in-depth (mainly the GET
- * case); both share {@link MfaLoginGateDecision} so they never drift apart.
+ * carries no credentials to authenticate). Running as a valve at the head of the pipeline, this
+ * component can short-circuit it and block the login BEFORE any authentication happens. The servlet
+ * filter stays as defense-in-depth (mainly the GET case); both share {@link MfaLoginGateDecision} so
+ * they never drift apart.
  * <p>
  * Pipeline protocol: {@link ValveContext#invokeNext(Object)} CONTINUES the pipeline (let the login
  * proceed); NOT calling it short-circuits, and this valve then writes the response itself (a redirect
@@ -44,8 +56,11 @@ import java.io.IOException;
  * <p>
  * <b>Registration:</b> this is a Declarative Services component (the module has no Spring context).
  * On {@code @Activate} it resolves Jahia's {@code authPipeline} bean via {@link SpringContextSingleton}
- * and inserts itself immediately before {@code LoginEngineAuthValve} using the {@link BaseAuthValve}
- * helper; on {@code @Deactivate} it removes itself. (It still extends {@link BaseAuthValve} for the
+ * and inserts itself at position 0 using the {@link BaseAuthValve} helper; on {@code @Deactivate} it
+ * removes itself. An absolute position is deliberate: the helper's positionBefore/positionAfter form
+ * appends the valve at the END of the pipeline when it cannot resolve the named valve's id - behind
+ * every credential consumer, which for a gate is the one placement that must not happen. (It still
+ * extends {@link BaseAuthValve} for the
  * id/enabled bookkeeping and the add/remove helpers; the Spring auto-registration base is not used
  * because Jahia does not build a Spring context for this bnd/DS bundle.)
  */
@@ -55,13 +70,16 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
     private static final Logger logger = LoggerFactory.getLogger(MfaLoginGateAuthValve.class);
 
     static final String VALVE_ID = "MfaLoginGateAuthValve";
-    /** The default password-login valve we must run in front of. */
-    static final String LOGIN_ENGINE_VALVE_ID = "LoginEngineAuthValve";
     /** Jahia core Spring bean id for the authentication pipeline. */
     static final String AUTH_PIPELINE_BEAN = "authPipeline";
+    /** The head of the pipeline: ahead of every valve that consumes credentials. */
+    static final int VALVE_POSITION = 0;
 
     private static final String PARAM_USERNAME = "username";
     private static final String PARAM_PASSWORD = "password";
+    private static final String HEADER_AUTHORIZATION = "Authorization";
+    /** Lower-cased: the scheme token is case-insensitive (RFC 7235), so the gate matches it that way. */
+    private static final String SCHEME_BASIC = "basic ";
 
     private MfaLoginGateDecision decision;
     private Pipeline authPipeline;
@@ -77,13 +95,13 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         Object bean = SpringContextSingleton.getBean(AUTH_PIPELINE_BEAN);
         if (bean instanceof Pipeline) {
             authPipeline = (Pipeline) bean;
-            // position = -1 so the helper falls through to positionBefore (LoginEngineAuthValve).
-            addValve(authPipeline, -1, null, LOGIN_ENGINE_VALVE_ID);
-            logger.info("MFA login gate auth valve registered before {} (blocks password-only "
-                    + "/cms/login before authentication while a site enforces MFA)", LOGIN_ENGINE_VALVE_ID);
+            addValve(authPipeline, VALVE_POSITION, null, null);
+            logger.info("MFA login gate auth valve registered at position {} (gates a password login - "
+                    + "form parameters or Authorization header - before authentication while a site "
+                    + "enforces MFA)", VALVE_POSITION);
         } else {
-            logger.error("Could not resolve the '{}' pipeline bean - the MFA /cms/login POST gate is NOT "
-                    + "active (password-only login would bypass MFA). Got: {}", AUTH_PIPELINE_BEAN, bean);
+            logger.error("Could not resolve the '{}' pipeline bean - the MFA password-login gate is NOT "
+                    + "active in the authentication pipeline. Got: {}", AUTH_PIPELINE_BEAN, bean);
         }
     }
 
@@ -112,10 +130,13 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         HttpServletRequest request = authContext.getRequest();
         HttpServletResponse response = authContext.getResponse();
 
-        // Mirror LoginEngineAuthValve's trigger: it only authenticates when BOTH username and
-        // password are present. A request without both is no password-login attempt - the valve has
-        // nothing to gate, so let the pipeline continue.
-        if (!isPasswordLoginAttempt(request)) {
+        // Mirror the credential triggers of the two valves that consume a password:
+        // LoginEngineAuthValve authenticates when BOTH the username and password parameters are
+        // present, HttpBasicAuthValve when the Authorization header carries the Basic scheme. A
+        // request with neither shape presents no password - the gate has nothing to evaluate, so let
+        // the pipeline continue.
+        boolean headerCredential = isHeaderCredentialAttempt(request);
+        if (!headerCredential && !isPasswordLoginAttempt(request)) {
             valveContext.invokeNext(context);
             return;
         }
@@ -140,11 +161,28 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         // The decisive block: a gated password login must NOT authenticate. Short-circuit the
         // pipeline (do not invokeNext) and write the response ourselves.
         if (currentDecision.isGated(request)) {
-            block(currentDecision, request, response);
+            if (headerCredential) {
+                blockHeaderCredential(response);
+            } else {
+                block(currentDecision, request, response);
+            }
             return;
         }
 
         valveContext.invokeNext(context);
+    }
+
+    /**
+     * Block a credential presented in the {@code Authorization} header: always {@code 403}, never a
+     * redirect. The caller is a non-interactive client (a script, an integration), so a login page is
+     * not something it can follow; a status code is the only answer it can act on. Non-interactive
+     * callers authenticate with a personal access token, which carries its own policy.
+     */
+    private void blockHeaderCredential(HttpServletResponse response) throws PipelineException {
+        logger.warn("MFA login gate auth valve: blocked a password presented in the {} header (MFA "
+                + "enrollment enforced and IP not whitelisted). A non-interactive client must "
+                + "authenticate with a personal access token instead.", HEADER_AUTHORIZATION);
+        forbid(response);
     }
 
     /**
@@ -154,19 +192,28 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
      */
     private void block(MfaLoginGateDecision currentDecision, HttpServletRequest request, HttpServletResponse response)
             throws PipelineException {
+        String distinctLogin = currentDecision.resolveDistinctLoginUrl(request);
+        if (distinctLogin == null) {
+            logger.warn("MFA login gate auth valve: blocked password-only /cms/login (MFA enrollment "
+                    + "enforced and IP not whitelisted; no distinct MFA login page configured to redirect "
+                    + "to - set loginUrl on PID org.jahia.modules.mfa.extensions or the site's MFA "
+                    + "administration page)");
+            forbid(response);
+            return;
+        }
+        logger.debug("MFA login gate auth valve: blocking password-only /cms/login, redirecting to "
+                + "the configured MFA login page");
         try {
-            String distinctLogin = currentDecision.resolveDistinctLoginUrl(request);
-            if (distinctLogin != null) {
-                logger.debug("MFA login gate auth valve: blocking password-only /cms/login, redirecting to "
-                        + "the configured MFA login page");
-                response.sendRedirect(distinctLogin);
-            } else {
-                logger.warn("MFA login gate auth valve: blocked password-only /cms/login (MFA enrollment "
-                        + "enforced and IP not whitelisted; no distinct MFA login page configured to redirect "
-                        + "to - set loginUrl on PID org.jahia.modules.mfa.extensions or the site's MFA "
-                        + "administration page)");
-                response.sendError(HttpServletResponse.SC_FORBIDDEN);
-            }
+            response.sendRedirect(distinctLogin);
+        } catch (IOException e) {
+            throw new PipelineException("Failed to write the MFA login gate block response", e);
+        }
+    }
+
+    /** Reject the request with {@code 403}, the gate's terminal answer. */
+    private static void forbid(HttpServletResponse response) throws PipelineException {
+        try {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
         } catch (IOException e) {
             throw new PipelineException("Failed to write the MFA login gate block response", e);
         }
@@ -176,6 +223,17 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
     private static boolean isPasswordLoginAttempt(HttpServletRequest request) {
         return StringUtils.isNotEmpty(request.getParameter(PARAM_USERNAME))
                 && StringUtils.isNotEmpty(request.getParameter(PARAM_PASSWORD));
+    }
+
+    /**
+     * Whether the request presents a password in the {@code Authorization} header - the shape
+     * {@code HttpBasicAuthValve} consumes, on any endpoint. Matched case-insensitively on the scheme
+     * token, which RFC 7235 defines as case-insensitive, so the gate covers every spelling a client
+     * may send.
+     */
+    private static boolean isHeaderCredentialAttempt(HttpServletRequest request) {
+        String authorization = request.getHeader(HEADER_AUTHORIZATION);
+        return authorization != null && authorization.toLowerCase(Locale.ROOT).startsWith(SCHEME_BASIC);
     }
 
     /** The bound decision component. Overridable seam so unit tests can inject a stub. */
