@@ -1,6 +1,6 @@
 {
   "name": "@jahia/mfa-factors-webauthn",
-  "version": "0.2.0-SNAPSHOT",
+  "version": "0.2.0",
   "description": "WebAuthn MFA factor \u2014 dashboard UI",
   "scripts": {
     "build": "yarn webpack",
