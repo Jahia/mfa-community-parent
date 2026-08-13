@@ -15,8 +15,9 @@ const formatTs = ts => {
 
 // A lazy query that has been called and is no longer loading has produced a definitive result, so
 // an empty payload means "no rows"/"no report" rather than "not run yet". Extracted so the two
-// call sites below don't each add their own chain of &&s to AuditReportSection's complexity.
-const isLazyQueryResultEmpty = (queryResult, hasData) =>
+// call sites below don't each add their own chain of &&s to AuditReportSection's complexity, and
+// exported so it can be unit-tested directly rather than only indirectly through the component.
+export const isLazyQueryResultEmpty = (queryResult, hasData) =>
     queryResult.called && !queryResult.loading && !queryResult.error && !hasData;
 
 /**

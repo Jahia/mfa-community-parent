@@ -13,6 +13,12 @@ const formatTs = ts => {
     return Number.isNaN(d.getTime()) ? String(ts) : d.toISOString().replace('T', ' ').slice(0, 19);
 };
 
+// A lazy query that has been called and is no longer loading has produced a definitive result, so
+// an empty payload means "no rows" rather than "not run yet". Extracted so it can be unit-tested
+// directly rather than only indirectly through the component.
+export const isLazyQueryResultEmpty = (queryResult, hasData) =>
+    queryResult.called && !queryResult.loading && !queryResult.error && !hasData;
+
 /**
  * Admin reporting: a recent-audit-events table and an enrollment summary
  * ("who hasn't enrolled?"). Both load lazily on demand to avoid scanning on every page view.
@@ -95,7 +101,7 @@ const AuditReportSection = ({siteKey}) => {
                 </Typography>
             )}
 
-            {audit.called && !audit.loading && !audit.error && events.length === 0 && (
+            {isLazyQueryResultEmpty(audit, events.length > 0) && (
                 <Typography data-testid="audit-empty" style={{display: 'block', color: '#555', marginBottom: 24}}>
                     {t('siteSettings.audit.noEvents')}
                 </Typography>
