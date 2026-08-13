@@ -1,6 +1,6 @@
 {
   "name": "@jahia/mfa-factors-totp",
-  "version": "0.2.0",
+  "version": "0.3.0-SNAPSHOT",
   "description": "TOTP MFA factor — dashboard UI",
   "scripts": {
     "build": "yarn webpack",
