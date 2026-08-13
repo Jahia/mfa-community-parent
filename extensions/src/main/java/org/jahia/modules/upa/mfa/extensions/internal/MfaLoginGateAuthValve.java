@@ -35,9 +35,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * The two shapes are NOT armed alike:
  * <ul>
- *   <li>the <b>form parameters</b> are gated unconditionally whenever a site enforces a factor -
- *       that shape belongs to one interactive endpoint, and letting it through is the MFA bypass
- *       this component exists to close;</li>
+ *   <li>the <b>form parameters</b> are gated whenever a site enforces a factor AND the request is
+ *       one {@code LoginEngineAuthValveImpl} would itself treat as a login attempt - mirroring its
+ *       {@code isLoginRequested(HttpServletRequest)}: the {@code doLogin} parameter is truthy
+ *       ({@code "true"}/{@code "1"}, matched the same way {@link Boolean#valueOf(String)} does), OR
+ *       the request's servlet path is {@code /cms} and its path info is {@code /login} (mirroring
+ *       {@code org.jahia.bin.Login.getMapping()}, duplicated here as a literal rather than a compile
+ *       dependency on {@code org.jahia.bin.Login} to avoid growing this bundle's
+ *       {@code Import-Package} for a single constant). Username and password alone are NOT enough:
+ *       those parameter names are common on unrelated Jahia and third-party module forms, and
+ *       without this extra check the gate would 403/redirect arbitrary endpoints platform-wide the
+ *       moment a site enforces MFA. Narrowed to its exact trigger, this shape belongs to one
+ *       interactive endpoint, and letting it through is the MFA bypass this component exists to
+ *       close;</li>
  *   <li>the <b>{@code Authorization: Basic} header</b> is gated only when the operator sets
  *       {@code loginGate.gateBasicAuth=true} (default {@code false}; see
  *       {@link MfaLoginGateDecision#isBasicAuthGateEnabled()}). That shape belongs to no particular
@@ -70,6 +80,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * site enforces MFA. Only the IP whitelist (the operator's emergency door) and the absence of
  * enforcement let a login through.
  * <p>
+ * <b>Coupling with {@link MfaLoginGateFilter} - the double-write hazard.</b> Jahia's own
+ * {@code JcrSessionFilter} invokes the authentication pipeline and then continues the SERVLET chain
+ * regardless of what the pipeline decided - it does not know or care that this valve short-circuited
+ * it. {@link MfaLoginGateFilter} is bound to {@code /cms/login} and runs later in that same chain; it
+ * gates purely on {@link MfaLoginGateDecision#isGated(HttpServletRequest)} and
+ * {@link MfaLoginGateDecision#isClientWhitelisted(HttpServletRequest)} - it does not look at
+ * credentials - so on the exact request this valve just blocked, it independently RE-EVALUATES the
+ * SAME decision and would try to {@code sendRedirect}/{@code sendError} a SECOND time on a response
+ * this valve already committed. That throws {@code IllegalStateException: Cannot call sendRedirect()
+ * after the response has been committed}, which surfaces to the client as a bare {@code 500} instead
+ * of the {@code 302}/{@code 403} this valve already sent (the {@code Location} header is correct; only
+ * the status line is wrong). The two components already share one decision
+ * ({@link MfaLoginGateDecision}) so they cannot disagree about WHETHER to block; what was missing was
+ * a signal for WHETHER a block already HAPPENED. This valve sets the {@link #ATTR_HANDLED} request
+ * attribute to {@link Boolean#TRUE} the instant it short-circuits (see {@code invoke}), and
+ * {@link MfaLoginGateFilter} checks that attribute - and, as a second, defensive line,
+ * {@code response.isCommitted()} - before doing anything else. It is a "handled" latch, not a second
+ * decision: the filter still recomputes {@link MfaLoginGateDecision} normally for every request this
+ * valve did NOT act on (the GET case, which carries no credentials and so never reaches this valve's
+ * block branch at all), which is exactly the defense-in-depth role it must keep playing.
+ * <p>
  * <b>Registration:</b> this is a Declarative Services component (the module has no Spring context).
  * On {@code @Activate} it resolves Jahia's {@code authPipeline} bean via {@link SpringContextSingleton}
  * and inserts itself at position 0 using the {@link BaseAuthValve} helper; on {@code @Deactivate} it
@@ -79,6 +110,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * extends {@link BaseAuthValve} for the
  * id/enabled bookkeeping and the add/remove helpers; the Spring auto-registration base is not used
  * because Jahia does not build a Spring context for this bnd/DS bundle.)
+ * <p>
+ * <b>Identity.</b> This class does not override {@code equals}/{@code hashCode}: a valve's identity
+ * in the pipeline is its id, and {@link BaseAuthValve} already implements id-based
+ * {@code equals}/{@code hashCode}, which a subclass adding no identity fields of its own inherits
+ * unchanged. The injected {@link #decision} and {@link #authPipeline} are runtime wiring, not
+ * identity, so they must NOT participate in either method.
  */
 @Component(service = MfaLoginGateAuthValve.class, immediate = true)
 public class MfaLoginGateAuthValve extends BaseAuthValve {
@@ -100,9 +137,30 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
 
     private static final String PARAM_USERNAME = "username";
     private static final String PARAM_PASSWORD = "password";
+    /** Mirrors {@code LoginEngineAuthValveImpl#LOGIN_TAG_PARAMETER}. */
+    private static final String PARAM_DO_LOGIN = "doLogin";
+    /** The servlet path a {@code /cms/*} request is dispatched under. */
+    private static final String CMS_SERVLET_PATH = "/cms";
+    /**
+     * Mirrors {@code org.jahia.bin.Login.getMapping()} (returns {@code "/login"}). Duplicated as a
+     * literal instead of a compile dependency on {@code org.jahia.bin.Login}: that class lives in
+     * {@code jahia-impl}, and adding it here would grow this bundle's {@code Import-Package} for the
+     * sake of a single constant. If Jahia ever changes this mapping, update this literal to match.
+     */
+    private static final String LOGIN_PATH_INFO = "/login";
     private static final String HEADER_AUTHORIZATION = "Authorization";
     /** Lower-cased: the scheme token is case-insensitive (RFC 7235), so the gate matches it that way. */
     private static final String SCHEME_BASIC = "basic ";
+    /**
+     * Request attribute this valve sets to {@link Boolean#TRUE}, on the request it is currently
+     * handling, the instant it decides to short-circuit the pipeline and write a terminal response
+     * itself (redirect or {@code 403}) - see the class javadoc, "Coupling with
+     * {@link MfaLoginGateFilter} - the double-write hazard", for why this exists. Package-visible:
+     * {@link MfaLoginGateFilter} is the only other reader and lives in this package. Named after its
+     * effect ("this request has already been handled"), not after which decision produced it - it is
+     * deliberately NOT a second decision, only a "did a block already happen" latch.
+     */
+    static final String ATTR_HANDLED = MfaLoginGateAuthValve.class.getName() + ".handled";
 
     private MfaLoginGateDecision decision;
     private Pipeline authPipeline;
@@ -157,10 +215,10 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         HttpServletResponse response = authContext.getResponse();
 
         // Mirror the credential triggers of the two valves that consume a password:
-        // LoginEngineAuthValve authenticates when BOTH the username and password parameters are
-        // present, HttpBasicAuthValve when the Authorization header carries the Basic scheme. A
-        // request with neither shape presents no password - the gate has nothing to evaluate, so let
-        // the pipeline continue.
+        // LoginEngineAuthValve authenticates when isLoginRequested() is true AND BOTH the username and
+        // password parameters are present, HttpBasicAuthValve when the Authorization header carries
+        // the Basic scheme. A request with neither shape presents no password - the gate has nothing
+        // to evaluate, so let the pipeline continue.
         boolean formCredential = isPasswordLoginAttempt(request);
         boolean headerShape = isHeaderCredentialAttempt(request);
         if (!formCredential && !headerShape) {
@@ -199,6 +257,12 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         // shapes the header answer wins, because HttpBasicAuthValve sits at the head of the pipeline
         // and is the valve that would actually have consumed such a request.
         if (currentDecision.isGated(request)) {
+            // Mark the request as handled BEFORE writing anything: MfaLoginGateFilter runs again
+            // later in the SAME servlet chain regardless of this short-circuit (see the class
+            // javadoc), so the attribute must already be visible to it by the time it does - setting
+            // it first, rather than after the write, costs nothing and removes any doubt about
+            // ordering.
+            request.setAttribute(ATTR_HANDLED, Boolean.TRUE);
             if (headerCredential) {
                 blockHeaderCredential(request, response);
             } else {
@@ -271,10 +335,37 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         }
     }
 
-    /** A {@code /cms/login} POST is a password-login attempt only when BOTH credentials are present. */
+    /**
+     * A password-login attempt only when BOTH credentials are present AND the request is one
+     * {@code LoginEngineAuthValveImpl} would itself treat as a login attempt (see
+     * {@link #isLoginRequested(HttpServletRequest)}). Checking credential presence alone is NOT
+     * enough: {@code username}/{@code password} are common form field names on endpoints that have
+     * nothing to do with {@code /cms/login}, and gating on presence alone would 403/redirect them
+     * platform-wide the instant a site enforces MFA - this valve runs at pipeline position 0, ahead
+     * of every request, not just {@code /cms/login} ones.
+     */
     private static boolean isPasswordLoginAttempt(HttpServletRequest request) {
         return StringUtils.isNotEmpty(request.getParameter(PARAM_USERNAME))
-                && StringUtils.isNotEmpty(request.getParameter(PARAM_PASSWORD));
+                && StringUtils.isNotEmpty(request.getParameter(PARAM_PASSWORD))
+                && isLoginRequested(request);
+    }
+
+    /**
+     * Mirrors {@code LoginEngineAuthValveImpl#isLoginRequested(HttpServletRequest)}: a login is
+     * requested when the {@code doLogin} parameter is truthy (checked exactly the way Jahia does -
+     * {@link Boolean#valueOf(String)} or the literal {@code "1"}), regardless of the endpoint; failing
+     * that, only when the request is dispatched to servlet path {@code /cms} with path info
+     * {@code /login} (the {@code /cms/login} mapping). This is the actual credential trigger
+     * {@code LoginEngineAuthValve} reads {@code username}/{@code password} under - reproducing it here
+     * is what keeps this gate from over-matching unrelated endpoints that merely happen to post
+     * fields named {@code username} and {@code password}.
+     */
+    private static boolean isLoginRequested(HttpServletRequest request) {
+        String doLogin = request.getParameter(PARAM_DO_LOGIN);
+        if (doLogin != null) {
+            return Boolean.valueOf(doLogin) || "1".equals(doLogin);
+        }
+        return CMS_SERVLET_PATH.equals(request.getServletPath()) && LOGIN_PATH_INFO.equals(request.getPathInfo());
     }
 
     /**
@@ -291,17 +382,5 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
     /** The bound decision component. Overridable seam so unit tests can inject a stub. */
     protected MfaLoginGateDecision lookupDecision() {
         return decision;
-    }
-
-    // A valve's identity in the pipeline is its id (see BaseAuthValve); the injected decision and
-    // pipeline are runtime wiring, not identity. Delegate so equals/hashCode stay id-based.
-    @Override
-    public boolean equals(Object obj) {
-        return super.equals(obj);
-    }
-
-    @Override
-    public int hashCode() {
-        return super.hashCode();
     }
 }

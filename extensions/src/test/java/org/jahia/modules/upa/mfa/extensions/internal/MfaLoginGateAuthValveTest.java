@@ -38,6 +38,9 @@ import static org.junit.Assert.assertTrue;
  *   <li>once armed, gate that header the same way, answering {@code 403} (a non-interactive caller
  *       has no login page to follow) and leaving a token scheme alone;</li>
  *   <li>register at the head of the pipeline, ahead of both valves that consume a password.</li>
+ *   <li>mark the request as handled ({@link MfaLoginGateAuthValve#ATTR_HANDLED}) whenever it blocks
+ *       - and only then - so {@link MfaLoginGateFilter} does not try to write a second terminal
+ *       response over an already-committed one (see the class javadoc on that coupling).</li>
  * </ul>
  */
 public class MfaLoginGateAuthValveTest {
@@ -77,6 +80,43 @@ public class MfaLoginGateAuthValveTest {
         assertFalse(recorder.invokedNext.get());
         assertEquals(Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
         assertNull(recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void gatedNonWhitelistedPasswordLogin_marksTheRequestAsHandled() throws Exception {
+        // This is the signal MfaLoginGateFilter relies on to avoid writing a second terminal
+        // response over the one this valve just committed (redirect or 403).
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = false;
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = loginPost();
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertEquals(Boolean.TRUE, request.getAttribute(MfaLoginGateAuthValve.ATTR_HANDLED));
+    }
+
+    @Test
+    public void nonBlockingOutcomes_doNotMarkTheRequestAsHandled() throws Exception {
+        // The attribute must stay absent whenever the valve did NOT itself write a terminal
+        // response, so the filter keeps evaluating those requests exactly as before (not gated,
+        // whitelisted, or decision service unavailable).
+        StubDecision notGated = new StubDecision();
+        notGated.gated = false;
+        HttpServletRequest notGatedRequest = loginPost();
+        valve(notGated).invoke(authContext(notGatedRequest, new Recorder().response), new Recorder().context());
+        assertNull(notGatedRequest.getAttribute(MfaLoginGateAuthValve.ATTR_HANDLED));
+
+        StubDecision whitelisted = new StubDecision();
+        whitelisted.gated = true;
+        whitelisted.whitelisted = true;
+        HttpServletRequest whitelistedRequest = loginPost();
+        valve(whitelisted).invoke(authContext(whitelistedRequest, new Recorder().response), new Recorder().context());
+        assertNull(whitelistedRequest.getAttribute(MfaLoginGateAuthValve.ATTR_HANDLED));
+
+        HttpServletRequest noDecisionRequest = loginPost();
+        valve(null).invoke(authContext(noDecisionRequest, new Recorder().response), new Recorder().context());
+        assertNull(noDecisionRequest.getAttribute(MfaLoginGateAuthValve.ATTR_HANDLED));
     }
 
     @Test
@@ -279,6 +319,71 @@ public class MfaLoginGateAuthValveTest {
     }
 
     @Test
+    public void formCredentialOnUnrelatedPath_withoutDoLogin_continuesPipeline() throws Exception {
+        // FINDING 1 regression: username+password parameters alone must NOT arm the gate.
+        // LoginEngineAuthValve only reads them once isLoginRequested() is true (doLogin=true/1, or
+        // servletPath=/cms + pathInfo=/login) - an unrelated endpoint carrying fields merely NAMED
+        // username/password (common on unrelated Jahia and third-party forms) must reach the
+        // pipeline untouched, even while a site enforces MFA and the client is not whitelisted.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = false;
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestOnUnrelatedPath("alice", "s3cret");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertTrue("username+password on an unrelated endpoint must not be gated", recorder.invokedNext.get());
+        assertNull(recorder.redirectedTo.get());
+        assertNull(recorder.errorSent.get());
+    }
+
+    @Test
+    public void formCredentialWithDoLoginTrue_onAnyPath_isGated() throws Exception {
+        // doLogin=true arms LoginEngineAuthValve's trigger regardless of servletPath/pathInfo, so
+        // the gate must mirror that: still block even off /cms/login.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = false;
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestWithDoLogin("alice", "s3cret", "true", "/other", "/somewhere");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertFalse("doLogin=true arms the gate regardless of path, mirroring isLoginRequested()",
+                recorder.invokedNext.get());
+        assertEquals("/sites/mySite/login.html", recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void formCredentialOnCmsLoginPath_withoutDoLogin_isGated() throws Exception {
+        // servletPath=/cms + pathInfo=/login mirrors org.jahia.bin.Login.getMapping(): the genuine
+        // /cms/login shape must still be gated even with no explicit doLogin parameter.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = false;
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestWith("alice", "s3cret", null, null, "/cms", "/login");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertFalse("servletPath=/cms + pathInfo=/login is the genuine /cms/login shape",
+                recorder.invokedNext.get());
+        assertEquals("/sites/mySite/login.html", recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void formCredentialWithDoLoginOne_onAnyPath_isGated() throws Exception {
+        // LoginEngineAuthValveImpl#isLoginRequested also treats the literal "1" as truthy for
+        // doLogin - mirror that spelling too.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = false;
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestWithDoLogin("alice", "s3cret", "1", "/other", "/somewhere");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertFalse("doLogin=1 arms the gate the same way as doLogin=true", recorder.invokedNext.get());
+        assertEquals("/sites/mySite/login.html", recorder.redirectedTo.get());
+    }
+
+    @Test
     public void initializeSetsTheId() {
         MfaLoginGateAuthValve valve = new MfaLoginGateAuthValve();
         valve.initialize();
@@ -367,7 +472,30 @@ public class MfaLoginGateAuthValveTest {
         return requestWith(null, null, authorization);
     }
 
+    /**
+     * Defaults servletPath/pathInfo to the genuine {@code /cms/login} shape
+     * (servletPath={@code /cms}, pathInfo={@code /login}), matching {@code getRequestURI()} below,
+     * so every pre-existing caller of this overload keeps exercising a real login-requested request.
+     */
     private static HttpServletRequest requestWith(String username, String password, String authorization) {
+        return requestWith(username, password, authorization, null, "/cms", "/login");
+    }
+
+    /** A request carrying username/password parameters on an unrelated endpoint - no doLogin, no /cms/login shape. */
+    private static HttpServletRequest requestOnUnrelatedPath(String username, String password) {
+        return requestWith(username, password, null, null, "/other", "/somewhere");
+    }
+
+    /** A request carrying the {@code doLogin} parameter on an arbitrary servletPath/pathInfo. */
+    private static HttpServletRequest requestWithDoLogin(String username, String password, String doLogin,
+            String servletPath, String pathInfo) {
+        return requestWith(username, password, null, doLogin, servletPath, pathInfo);
+    }
+
+    private static HttpServletRequest requestWith(String username, String password, String authorization,
+            String doLogin, String servletPath, String pathInfo) {
+        // A real backing map for setAttribute/getAttribute, so tests can assert on ATTR_HANDLED.
+        Map<String, Object> attributes = new HashMap<>();
         return (HttpServletRequest) Proxy.newProxyInstance(
                 MfaLoginGateAuthValveTest.class.getClassLoader(),
                 new Class<?>[]{HttpServletRequest.class},
@@ -380,6 +508,9 @@ public class MfaLoginGateAuthValveTest {
                             if ("password".equals(args[0])) {
                                 return password;
                             }
+                            if ("doLogin".equals(args[0])) {
+                                return doLogin;
+                            }
                             return null;
                         case "getHeader":
                             return "Authorization".equals(args[0]) ? authorization : null;
@@ -387,6 +518,15 @@ public class MfaLoginGateAuthValveTest {
                             return "";
                         case "getRequestURI":
                             return "/cms/login";
+                        case "getServletPath":
+                            return servletPath;
+                        case "getPathInfo":
+                            return pathInfo;
+                        case "setAttribute":
+                            attributes.put((String) args[0], args[1]);
+                            return null;
+                        case "getAttribute":
+                            return attributes.get(args[0]);
                         default:
                             return null;
                     }

@@ -31,6 +31,26 @@ import java.util.List;
  * {@code Authorization: Basic} coverage is opt-in ({@code loginGate.gateBasicAuth}) - see
  * {@link MfaLoginGateAuthValve}. Nothing in this filter reacts to that switch.
  * <p>
+ * <b>Why this filter must not write to the response a second time.</b> Jahia's own
+ * {@code JcrSessionFilter} invokes the authentication pipeline and then continues the SERVLET chain
+ * regardless of what the pipeline decided. So when {@link MfaLoginGateAuthValve} blocks a
+ * password-only {@code /cms/login} POST - short-circuiting the pipeline and writing a redirect or
+ * {@code 403} itself - this filter still runs afterwards on that same request/response pair. Since
+ * this filter gates purely on {@link MfaLoginGateDecision#isGated(HttpServletRequest)} +
+ * {@link MfaLoginGateDecision#isClientWhitelisted(HttpServletRequest)} (it never looks at
+ * credentials), it would independently re-evaluate the SAME decision and try to write a SECOND
+ * terminal response on top of the valve's - which throws {@code IllegalStateException} on an
+ * already-committed response and surfaces to the client as a bare {@code 500} instead of the
+ * {@code 302}/{@code 403} the valve already sent correctly. This filter therefore checks, before
+ * anything else: (1) the {@link MfaLoginGateAuthValve#ATTR_HANDLED} request attribute the valve sets
+ * the instant it short-circuits - the authoritative "already handled" signal - and (2)
+ * {@code response.isCommitted()} as a second, defensive line that also covers any other component
+ * that might commit the response ahead of this filter. Neither check is a second gating decision -
+ * {@link MfaLoginGateDecision} remains the single source of truth for WHETHER to block; these checks
+ * only answer WHETHER a block already happened. Absent either signal (the ordinary {@code GET} case,
+ * which carries no credentials and so never reaches the valve's block branch at all) this filter
+ * keeps evaluating and acting exactly as before - that GET case is its entire remaining purpose.
+ * <p>
  * The actual gating decision (enforcement active, per-site/no-site activation, readiness fail-closed,
  * IP whitelist, configured login URL) lives in the shared {@link MfaLoginGateDecision} component, so
  * the filter and the valve never drift apart. This class only maps the decision onto servlet
@@ -91,6 +111,29 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
         // Nothing to release.
     }
 
+    /**
+     * Whether {@link MfaLoginGateAuthValve} already wrote a terminal response for this exact
+     * request - see the class javadoc, "Why this filter must not write to the response a second
+     * time". Checked first, before {@link #decision} is consulted at all: there is nothing safe this
+     * filter can do to an already-committed response other than leave it alone.
+     */
+    private static boolean alreadyHandledByTheValve(HttpServletRequest request, ServletResponse response) {
+        if (Boolean.TRUE.equals(request.getAttribute(MfaLoginGateAuthValve.ATTR_HANDLED))) {
+            logger.debug("MfaLoginGateFilter: MfaLoginGateAuthValve already wrote a terminal response "
+                    + "for this request (a password-only POST blocked before authentication) - not "
+                    + "re-evaluating the gate a second time");
+            return true;
+        }
+        if (response.isCommitted()) {
+            // Defensive: covers any other component that might commit the response ahead of this
+            // filter, not just the valve above - a committed response can never be written to again.
+            logger.debug("MfaLoginGateFilter: the response is already committed - not writing to it "
+                    + "again");
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
@@ -99,6 +142,9 @@ public class MfaLoginGateFilter extends AbstractServletFilter {
             return;
         }
         HttpServletRequest httpRequest = (HttpServletRequest) request;
+        if (alreadyHandledByTheValve(httpRequest, response)) {
+            return;
+        }
         if (!decision.isGated(httpRequest)) {
             chain.doFilter(request, response);
             return;
