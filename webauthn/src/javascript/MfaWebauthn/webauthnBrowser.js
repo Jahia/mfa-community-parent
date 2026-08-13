@@ -7,7 +7,10 @@
  * those conversions with no external dependency.
  */
 
-function b64uToBuf(b64u) {
+// Exported (rather than kept module-private) so the base64url<->ArrayBuffer conversion can be
+// unit-tested directly: a padding/substitution bug here would silently corrupt every credential
+// id and challenge, and the round-trip is pure, cheap, high-signal code to cover on its own.
+export function b64uToBuf(b64u) {
     const pad = '='.repeat((4 - (b64u.length % 4)) % 4);
     const b64 = (b64u + pad).replace(/-/g, '+').replace(/_/g, '/');
     const bin = atob(b64);
@@ -19,7 +22,7 @@ function b64uToBuf(b64u) {
     return bytes.buffer;
 }
 
-function bufToB64u(buf) {
+export function bufToB64u(buf) {
     const bytes = new Uint8Array(buf);
     let bin = '';
     for (let i = 0; i < bytes.length; i++) {

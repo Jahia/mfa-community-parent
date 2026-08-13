@@ -18,6 +18,7 @@ const ResetUserSection = ({siteKey}) => {
 
     const [resetMutation, {loading}] = useMutation(ResetUserMfaMutation, {
         onCompleted: () => {
+            setConfirming(false);
             setDone(true);
             setErrorKey(null);
             setUserId('');
@@ -29,9 +30,13 @@ const ResetUserSection = ({siteKey}) => {
     });
 
     // Two-phase destructive action: the first click only ARMS the reset (shows the
-    // irreversibility warning); the actual mutation requires a second, explicit click.
+    // irreversibility warning); the actual mutation requires a second, explicit click. The
+    // confirmation box (and its "Resetting..." in-flight label) is dismissed only once the
+    // mutation actually settles (see onCompleted above) - not synchronously on this click -
+    // so the admin gets visible in-flight feedback instead of the box vanishing the instant
+    // they confirm (setConfirming(false) here would batch with useMutation's loading:true
+    // update and hide the box before it could ever show the loading label).
     const reset = () => {
-        setConfirming(false);
         setDone(false);
         setErrorKey(null);
         resetMutation({variables: {userId: userId.trim(), siteKey}});
