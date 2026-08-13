@@ -127,6 +127,10 @@ from a snapshot.
   leave the server only on the `enroll` response. After `confirmEnroll`, the secret is
   never returned by any API and never logged. Preserve this when adding fields.
 - **Constant-time comparisons** for all code/hash comparisons.
+- **The `/cms/login` gate is deliberately scoped to global enforcement:** `MfaLoginGateDecision.isGated`
+  returns `false` whenever `enforcedFactors` is empty — before `loginGate.enabled` is ever consulted —
+  so a per-site opt-in deployment gets no gate. Reviewed, accepted, and documented (README, *Known
+  limitation* under *The `/cms/login` gate*); do not "fix" it by dropping that early return.
 - **GroupId `org.jahia.community`** in `pom.xml` is required by Jahia EE license checks.
   Do not move the bundle under `org.jahia.modules`.
 
