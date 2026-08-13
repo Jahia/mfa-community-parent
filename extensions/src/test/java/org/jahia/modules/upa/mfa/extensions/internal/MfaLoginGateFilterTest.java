@@ -3,10 +3,12 @@ package org.jahia.modules.upa.mfa.extensions.internal;
 import org.junit.Test;
 
 import javax.servlet.FilterChain;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.jahia.modules.upa.mfa.extensions.internal.MfaLoginGateDecisionTest.decisionWith;
@@ -22,8 +24,76 @@ import static org.junit.Assert.assertNull;
  * in {@link MfaLoginGateDecisionTest}; here we wire a decision into the filter and assert the
  * terminal action {@code doFilter} takes. The filter is defense-in-depth (mainly the GET case);
  * the decisive POST block lives in {@link MfaLoginGateAuthValveTest}.
+ * <p>
+ * Also covered here: the double-write guard against {@link MfaLoginGateAuthValve} - the filter must
+ * step aside, untouched, both when the valve's {@link MfaLoginGateAuthValve#ATTR_HANDLED} request
+ * attribute is present and when the response is independently already committed, and it must keep
+ * gating normally otherwise (the GET case, its whole remaining purpose).
  */
 public class MfaLoginGateFilterTest {
+
+    // --- Double-write guard against MfaLoginGateAuthValve --------------------------------------
+
+    @Test
+    public void alreadyHandledByTheValve_doesNotTouchTheResponseOrChain() throws Exception {
+        // The valve already wrote a terminal response for this request (a blocked POST); the filter
+        // must not re-evaluate the gate or write anything, even though this decision WOULD gate it.
+        MfaLoginGateFilter gate = filterWith(decisionWith("totp", "/sites/mySite/login.html",
+                provider("totp", true, true, false)));
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestFlaggedAsHandledByTheValve();
+        gate.doFilter(request, recorder.response(), recorder.chain());
+        assertNull("must not redirect a second time", recorder.redirectedTo.get());
+        assertNull("must not 403 either", recorder.errorSent.get());
+        assertNull("must not chain through to the password-only screen", recorder.chained.get());
+    }
+
+    @Test
+    public void alreadyCommittedResponse_doesNotTouchTheResponseOrChain() throws Exception {
+        // Defensive line: even without the valve's attribute, an already-committed response (from
+        // ANY upstream component) must never be written to again.
+        MfaLoginGateFilter gate = filterWith(decisionWith("totp", "/sites/mySite/login.html",
+                provider("totp", true, true, false)));
+        Recorder recorder = new Recorder();
+        recorder.committed.set(true);
+        gate.doFilter(loginRequest(), recorder.response(), recorder.chain());
+        assertNull(recorder.redirectedTo.get());
+        assertNull(recorder.errorSent.get());
+        assertNull(recorder.chained.get());
+    }
+
+    @Test
+    public void notHandledByTheValveAndNotCommitted_gatesNormally() throws Exception {
+        // Neither signal present (the ordinary GET case): the filter must keep gating exactly as
+        // before - this is its entire remaining purpose.
+        MfaLoginGateFilter gate = filterWith(decisionWith("totp", "/sites/mySite/login.html",
+                provider("totp", true, true, false)));
+        Recorder recorder = new Recorder();
+        gate.doFilter(loginRequest(), recorder.response(), recorder.chain());
+        assertEquals("/sites/mySite/login.html", recorder.redirectedTo.get());
+        assertNull(recorder.chained.get());
+    }
+
+    /** A GET /cms/login request already flagged, by the valve, as handled. */
+    private static HttpServletRequest requestFlaggedAsHandledByTheValve() {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                MfaLoginGateFilterTest.class.getClassLoader(),
+                new Class<?>[]{HttpServletRequest.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "getAttribute":
+                            return MfaLoginGateAuthValve.ATTR_HANDLED.equals(args[0]) ? Boolean.TRUE : null;
+                        case "getRequestURI":
+                            return "/cms/login";
+                        case "getContextPath":
+                            return "";
+                        case "getRemoteAddr":
+                            return "198.51.100.23";
+                        default:
+                            return null;
+                    }
+                });
+    }
 
     // --- Automatic mode: /cms/login reachable ONLY when explicitly configured as loginUrl ----
 
@@ -129,6 +199,8 @@ public class MfaLoginGateFilterTest {
         private final AtomicReference<Boolean> chained = new AtomicReference<>();
         private final AtomicReference<String> redirectedTo = new AtomicReference<>();
         private final AtomicReference<Integer> errorSent = new AtomicReference<>();
+        /** Mirrors a real HttpServletResponse: false until a caller flips it, or a test presets it. */
+        private final AtomicBoolean committed = new AtomicBoolean(false);
 
         private HttpServletResponse response() {
             return (HttpServletResponse) Proxy.newProxyInstance(
@@ -137,8 +209,12 @@ public class MfaLoginGateFilterTest {
                     (proxy, method, args) -> {
                         if ("sendRedirect".equals(method.getName())) {
                             redirectedTo.set((String) args[0]);
+                            committed.set(true);
                         } else if ("sendError".equals(method.getName())) {
                             errorSent.set((Integer) args[0]);
+                            committed.set(true);
+                        } else if ("isCommitted".equals(method.getName())) {
+                            return committed.get();
                         }
                         return null;
                     });

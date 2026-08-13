@@ -176,6 +176,16 @@
                         </goals>
                     </execution>
                     <execution>
+                        <id>yarn lint</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>yarn</goal>
+                        </goals>
+                        <configuration>
+                            <arguments>lint</arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
                         <id>yarn build</id>
                         <phase>generate-resources</phase>
                         <goals>
@@ -250,6 +260,40 @@
                             *
                         </Import-Package>
                     </instructions>
+                </configuration>
+            </plugin>
+            <!-- Instruments the unit tests and emits target/jacoco.exec + target/site/jacoco/jacoco.xml
+                 (the report Sonar reads via the root pom's sonar.coverage.jacoco.xmlReportPaths). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.13</version>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- jacoco:prepare-agent injects the javaagent via the "argLine" property; surefire must be
+                 told to consume it explicitly (it does not do so implicitly), and it must be a
+                 late-bound (@{...}) reference so it is resolved at test-execution time, after jacoco has
+                 set the property - not at POM-parse time, when it would still be empty. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine}</argLine>
                 </configuration>
             </plugin>
         </plugins>

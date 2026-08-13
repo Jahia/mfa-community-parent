@@ -184,8 +184,15 @@ const MyMfaSettings = () => {
                         onConfirm={code => confirmMutation({variables: {code}})}
                     />
 
+                    {/* Neither mutation below has a backup-code branch server-side (see
+                        TotpUserStore#verifyAndConsumeTotp / TotpFactorMutation): both call sites
+                        used to pass isBackupCodeAllowed, prompting the user to enter a backup code
+                        that the server would then reject as invalid_code, burning rate-limiter
+                        attempts on an honest, on-screen-instructed action. Accepting backup codes
+                        here would be a reasonable product enhancement, but deciding what a
+                        recovery credential may authorise is a security decision that belongs
+                        server-side, not in this dialog - left as a TODO, out of scope here. */}
                     <CodePromptDialog
-                        isBackupCodeAllowed
                         isOpen={disableOpen}
                         title={t('disableDialog.title')}
                         description={t('disableDialog.description')}
@@ -198,7 +205,6 @@ const MyMfaSettings = () => {
                     />
 
                     <CodePromptDialog
-                        isBackupCodeAllowed
                         isOpen={regenOpen}
                         title={t('regenDialog.title')}
                         description={t('regenDialog.description')}

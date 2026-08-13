@@ -13,6 +13,12 @@ const formatTs = ts => {
     return Number.isNaN(d.getTime()) ? String(ts) : d.toISOString().replace('T', ' ').slice(0, 19);
 };
 
+// A lazy query that has been called and is no longer loading has produced a definitive result, so
+// an empty payload means "no rows"/"no report" rather than "not run yet". Extracted so the two
+// call sites below don't each add their own chain of &&s to AuditReportSection's complexity.
+const isLazyQueryResultEmpty = (queryResult, hasData) =>
+    queryResult.called && !queryResult.loading && !queryResult.error && !hasData;
+
 /**
  * Admin reporting: a recent-audit-events table and an enrollment summary
  * ("who hasn't enrolled?"). Both load lazily on demand to avoid scanning on every page view.
@@ -31,10 +37,8 @@ const AuditReportSection = ({siteKey}) => {
 
     const events = (audit.data && audit.data.mfaTotp && audit.data.mfaTotp.auditEvents) || [];
     const reportData = report.data && report.data.mfaTotp && report.data.mfaTotp.enrollmentReport;
-    // A lazy query that has been called and is no longer loading has produced a definitive
-    // result, so an empty payload means "no rows" rather than "not run yet".
-    const auditEmpty = audit.called && !audit.loading && !audit.error && events.length === 0;
-    const reportEmpty = report.called && !report.loading && !report.error && !reportData;
+    const auditEmpty = isLazyQueryResultEmpty(audit, events.length > 0);
+    const reportEmpty = isLazyQueryResultEmpty(report, Boolean(reportData));
 
     return (
         <section data-testid="audit-report-section" data-factor="totp">
@@ -153,7 +157,7 @@ const AuditReportSection = ({siteKey}) => {
     );
 };
 
-// overflowWrap/wordBreak let long free-form values (IPs, user agents, messages) wrap inside their
+// OverflowWrap/wordBreak let long free-form values (IPs, user agents, messages) wrap inside their
 // fixed-width column instead of forcing the table wider than its container.
 const cell = {border: '1px solid #e0e0e0', padding: '4px 8px', textAlign: 'left', fontSize: '0.85rem', verticalAlign: 'top', wordBreak: 'break-word', overflowWrap: 'anywhere'};
 // The timestamp is a fixed-shape value: keep it on one line in its sized column.

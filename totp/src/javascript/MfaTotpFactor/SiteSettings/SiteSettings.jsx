@@ -24,17 +24,22 @@ const SiteSettings = () => {
     const [savedAt, setSavedAt] = useState(null);
     const [errorKey, setErrorKey] = useState(null);
 
-    const {data, loading} = useQuery(SiteSettingsQuery, {
+    const {data, loading, error} = useQuery(SiteSettingsQuery, {
         variables: {siteKey},
         skip: !siteKey,
         fetchPolicy: 'network-only'
     });
+    // True only once the form has actually been populated from a successful response - a failed
+    // load must not let Save fall back to the constructor defaults (enabled: false) and silently
+    // turn MFA off for this site.
+    const [settingsLoaded, setSettingsLoaded] = useState(false);
 
     useEffect(() => {
         const s = data && data.mfaTotp && data.mfaTotp.siteSettings;
         if (s) {
             setEnabled(Boolean(s.enabled));
             setGroups((s.enabledGroups || []).join(', '));
+            setSettingsLoaded(true);
         }
     }, [data]);
 
@@ -74,7 +79,7 @@ const SiteSettings = () => {
         <Button key="save"
                 size="big"
                 color="accent"
-                isDisabled={saving || loading}
+                isDisabled={saving || loading || !settingsLoaded || Boolean(error)}
                 data-testid="site-settings-save-btn"
                 label={saving ? t('siteSettings.saving') : t('siteSettings.save')}
                 onClick={save}/>
@@ -91,7 +96,16 @@ const SiteSettings = () => {
             content={(
                 <div style={{padding: '24px', maxWidth: 760}}>
                     <style>{ADMIN_INPUT_FOCUS_STYLE}</style>
-                    {loading ? <Loader/> : (
+                    {loading ? <Loader/> : null}
+                    {!loading && error && (
+                        <Typography role="alert"
+                                    style={{color: '#a00000', display: 'block'}}
+                                    data-testid="site-settings-load-error"
+                        >
+                            {t('siteSettings.errors.loadFailed')}
+                        </Typography>
+                    )}
+                    {!loading && !error && (
                         <>
                             <Typography style={{marginBottom: 24, display: 'block'}}>
                                 {t('siteSettings.description')}
