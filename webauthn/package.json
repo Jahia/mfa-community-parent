@@ -63,7 +63,7 @@
     "rimraf": "^5.0.0",
     "sass": "^1.52.1",
     "sass-loader": "^17.0.0",
-    "style-loader": "^3.3.1",
+    "style-loader": "^4.0.0",
     "sync-pom-version-to-package": "^1.6.1",
     "webpack": "^5.108.3",
     "webpack-bundle-analyzer": "^5.3.0",
