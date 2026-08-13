@@ -18,21 +18,37 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Applies the MFA gate to a password login inside Jahia's authentication pipeline: a Jahia
- * authentication valve registered FIRST in that pipeline, ahead of every valve that consumes
- * credentials.
+ * authentication valve inserted at the head of that pipeline, so that it runs ahead of every valve
+ * that consumes a password.
  * <p>
  * <b>Which credential shapes the gate covers.</b> A password reaches the pipeline in two shapes, and
  * a different valve consumes each one: the {@code username}/{@code password} form parameters of a
  * {@code /cms/login} POST ({@code LoginEngineAuthValve}), and an {@code Authorization: Basic} header
  * on any endpoint ({@code HttpBasicAuthValve}, enabled by default). Both are a single factor, so both
- * are gated here. Sitting at position 0 is what makes that possible - the gate is ahead of both
- * consumers, whichever one a request is heading for. A header-borne credential is answered with
- * {@code 403} rather than a redirect: the caller is a non-interactive client, which has no login page
- * to follow. Token credentials ({@code TokenAuthValve}, personal access tokens) are a different
- * policy question and are not gated here.
+ * CAN be gated here. Sitting at position 0 is what makes that possible - the gate is ahead of both
+ * consumers, whichever one a request is heading for. Token credentials ({@code TokenAuthValve},
+ * personal access tokens) are a different policy question and are not gated here.
+ * <p>
+ * The two shapes are NOT armed alike:
+ * <ul>
+ *   <li>the <b>form parameters</b> are gated unconditionally whenever a site enforces a factor -
+ *       that shape belongs to one interactive endpoint, and letting it through is the MFA bypass
+ *       this component exists to close;</li>
+ *   <li>the <b>{@code Authorization: Basic} header</b> is gated only when the operator sets
+ *       {@code loginGate.gateBasicAuth=true} (default {@code false}; see
+ *       {@link MfaLoginGateDecision#isBasicAuthGateEnabled()}). That shape belongs to no particular
+ *       endpoint: it is what every script, integration, CI job and WebDAV client sends, so gating it
+ *       refuses the whole machine-facing surface - the provisioning API included - the moment ONE
+ *       site enforces a factor. Since the IP whitelist fails closed behind a reverse proxy
+ *       (GHSA-4v3g-mcmj-83fp), an always-on version of this could leave an operator with no HTTP
+ *       route back to the setting that caused it. Opt-in makes that a deliberate posture.</li>
+ * </ul>
+ * A blocked header credential is answered with {@code 403} rather than a redirect: the caller is a
+ * non-interactive client, which has no login page to follow.
  * <p>
  * <b>Why a valve and not just the servlet filter?</b> Jahia authenticates a {@code /cms/login} POST
  * inside its authentication pipeline, and that pipeline runs BEFORE module servlet filters. So a
@@ -72,7 +88,14 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
     static final String VALVE_ID = "MfaLoginGateAuthValve";
     /** Jahia core Spring bean id for the authentication pipeline. */
     static final String AUTH_PIPELINE_BEAN = "authPipeline";
-    /** The head of the pipeline: ahead of every valve that consumes credentials. */
+    /**
+     * Insert at the head of the pipeline. The property this buys is being ahead of BOTH valves that
+     * consume a password ({@code HttpBasicAuthValve}, {@code LoginEngineAuthValve}) - not literally
+     * being index 0 forever: another module can insert at 0 later and push this valve to 1. That is
+     * harmless and, for {@code personal-api-tokens}, desirable - its token valve authenticates and
+     * short-circuits before this gate is reached, which is what makes "use a personal API token
+     * instead" work as advice.
+     */
     static final int VALVE_POSITION = 0;
 
     private static final String PARAM_USERNAME = "username";
@@ -83,6 +106,8 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
 
     private MfaLoginGateDecision decision;
     private Pipeline authPipeline;
+    /** One-shot latch for the header-block WARN; see {@link #blockHeaderCredential}. Reset on activation. */
+    private final AtomicBoolean headerBlockWarned = new AtomicBoolean(false);
 
     @Reference
     public void setDecision(MfaLoginGateDecision decision) {
@@ -92,6 +117,7 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
     @Activate
     public void activate() {
         initialize();
+        headerBlockWarned.set(false); // a redeploy earns a fresh loud line
         Object bean = SpringContextSingleton.getBean(AUTH_PIPELINE_BEAN);
         if (bean instanceof Pipeline) {
             authPipeline = (Pipeline) bean;
@@ -135,8 +161,9 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         // present, HttpBasicAuthValve when the Authorization header carries the Basic scheme. A
         // request with neither shape presents no password - the gate has nothing to evaluate, so let
         // the pipeline continue.
-        boolean headerCredential = isHeaderCredentialAttempt(request);
-        if (!headerCredential && !isPasswordLoginAttempt(request)) {
+        boolean formCredential = isPasswordLoginAttempt(request);
+        boolean headerShape = isHeaderCredentialAttempt(request);
+        if (!formCredential && !headerShape) {
             valveContext.invokeNext(context);
             return;
         }
@@ -152,6 +179,15 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
             return;
         }
 
+        // The header shape is OPT-IN (loginGate.gateBasicAuth): unlike the form parameters it is not
+        // confined to /cms/login, so gating it refuses every non-interactive client on every
+        // endpoint. Not armed => this valve has nothing to say about a header-only request.
+        boolean headerCredential = headerShape && currentDecision.isBasicAuthGateEnabled();
+        if (!formCredential && !headerCredential) {
+            valveContext.invokeNext(context);
+            return;
+        }
+
         // The emergency door: a whitelisted client is always let through (matches the filter).
         if (currentDecision.isClientWhitelisted(request)) {
             valveContext.invokeNext(context);
@@ -159,10 +195,12 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
         }
 
         // The decisive block: a gated password login must NOT authenticate. Short-circuit the
-        // pipeline (do not invokeNext) and write the response ourselves.
+        // pipeline (do not invokeNext) and write the response ourselves. When a request carries BOTH
+        // shapes the header answer wins, because HttpBasicAuthValve sits at the head of the pipeline
+        // and is the valve that would actually have consumed such a request.
         if (currentDecision.isGated(request)) {
             if (headerCredential) {
-                blockHeaderCredential(response);
+                blockHeaderCredential(request, response);
             } else {
                 block(currentDecision, request, response);
             }
@@ -177,11 +215,25 @@ public class MfaLoginGateAuthValve extends BaseAuthValve {
      * redirect. The caller is a non-interactive client (a script, an integration), so a login page is
      * not something it can follow; a status code is the only answer it can act on. Non-interactive
      * callers authenticate with a personal access token, which carries its own policy.
+     * <p>
+     * Logged at DEBUG per request, with the target so an operator can tell WHICH integration broke:
+     * this branch fires on any endpoint for any unauthenticated caller, so a per-request WARN would
+     * hand that caller a log-amplification lever. The one-shot WARN below is the loud line instead -
+     * it names the switch and the way out exactly once per activation, which is what an operator
+     * chasing a newly-403ing integration actually needs.
      */
-    private void blockHeaderCredential(HttpServletResponse response) throws PipelineException {
-        logger.warn("MFA login gate auth valve: blocked a password presented in the {} header (MFA "
-                + "enrollment enforced and IP not whitelisted). A non-interactive client must "
-                + "authenticate with a personal access token instead.", HEADER_AUTHORIZATION);
+    private void blockHeaderCredential(HttpServletRequest request, HttpServletResponse response)
+            throws PipelineException {
+        if (headerBlockWarned.compareAndSet(false, true)) {
+            logger.warn("MFA login gate auth valve: refusing passwords presented in the {} header while MFA "
+                    + "enrollment is enforced ({}=true). Non-interactive clients must authenticate with a "
+                    + "personal API token instead. Set {}=false on PID org.jahia.modules.mfa.extensions to "
+                    + "revert. Further occurrences are logged at DEBUG.",
+                    HEADER_AUTHORIZATION, MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH,
+                    MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH);
+        }
+        logger.debug("MFA login gate auth valve: blocked a password presented in the {} header for {} "
+                + "(enforced, IP not whitelisted)", HEADER_AUTHORIZATION, request.getRequestURI());
         forbid(response);
     }
 

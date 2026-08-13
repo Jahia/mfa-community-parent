@@ -48,7 +48,9 @@ extensions/                        Shared OSGi bundle (artifactId mfa-factors-ex
     BackupCodes.java                 Generates, PBKDF2-hashes, and constant-time-verifies backup codes.
     MfaUrls.java                     Open-redirect-safe server-relative URL validation (single chokepoint).
     internal/
-      MfaLoginGateFilter.java        /cms/login gate (AbstractServletFilter); gates when ANY factor enforces (aggregates MfaSiteProvider).
+      MfaLoginGateDecision.java      The shared gating decision (enforcement ∩ per-site activation, IP whitelist, login URL); used by BOTH the filter and the valve so they cannot drift.
+      MfaLoginGateAuthValve.java     Auth valve at position 0 of Jahia's authPipeline — the decisive block, ahead of HttpBasicAuthValve and LoginEngineAuthValve. Gates the /cms/login form shape always; the Authorization: Basic shape only when loginGate.gateBasicAuth=true (opt-in: it applies to EVERY endpoint).
+      MfaLoginGateFilter.java        /cms/login gate (AbstractServletFilter, URL-scoped to /cms/login); defense-in-depth for the GET case; gates when ANY factor enforces (aggregates MfaSiteProvider).
       MfaLoginLogoutProvider.java    LoginUrlProvider/LogoutUrlProvider; routes to the MFA login UI (per-site via SPI → global cfg → null).
       EmailCodeFactorAdapter.java    MfaSiteProvider adapter for UPA's built-in email_code factor (configured == j:email present; foreign, not inline-enrollable).
   src/main/resources/META-INF/configurations/org.jahia.modules.mfa.extensions.cfg   Gate + global login/logout URL config.

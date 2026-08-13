@@ -43,25 +43,45 @@ export function setSiteTotpSettings(siteKey: string, enabled: boolean) {
 }
 
 /**
- * Set the GLOBAL enforcement policy (PID org.jahia.modules.mfa.extensions) through the
- * provisioning API: which factors are enforced platform-wide and the grace window in days.
- * Pass an empty string to turn enforcement off. ALWAYS revert in after() — a leftover
- * enforcement policy would push every other spec's users through inline enrollment.
+ * Write properties onto the shared MFA extensions PID (org.jahia.modules.mfa.extensions) through
+ * the provisioning API, then wait for ConfigAdmin to dispatch the @Modified event.
+ *
+ * `extraHeaders` exists for the gate specs. The provisioning API authenticates with Basic auth, so
+ * once `loginGate.gateBasicAuth` is armed it answers 403 to this very call — those specs must
+ * present the whitelisted `X-Forwarded-For` that the gate's emergency door matches on. Every other
+ * caller passes nothing and behaves exactly as before.
  */
-export function setGlobalEnforcement(enforcedFactors: string, graceDays = 0) {
+export function editMfaExtensionsConfig(
+    properties: Record<string, string>,
+    extraHeaders: Record<string, string> = {},
+) {
     const password = Cypress.env('SUPER_USER_PASSWORD') as string;
     cy.request({
         method: 'POST',
         url: '/modules/api/provisioning',
         auth: {user: 'root', pass: password},
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', ...extraHeaders},
         body: [{
             editConfiguration: 'org.jahia.modules.mfa.extensions',
-            properties: {enforcedFactors, graceDays: String(graceDays)},
+            properties,
         }],
     });
-    // Give ConfigAdmin a moment to dispatch the @Modified event to the policy component.
+    // Give ConfigAdmin a moment to dispatch the @Modified event to the components.
     cy.wait(2000);
+}
+
+/**
+ * Set the GLOBAL enforcement policy (PID org.jahia.modules.mfa.extensions) through the
+ * provisioning API: which factors are enforced platform-wide and the grace window in days.
+ * Pass an empty string to turn enforcement off. ALWAYS revert in after() — a leftover
+ * enforcement policy would push every other spec's users through inline enrollment.
+ */
+export function setGlobalEnforcement(
+    enforcedFactors: string,
+    graceDays = 0,
+    extraHeaders: Record<string, string> = {},
+) {
+    editMfaExtensionsConfig({enforcedFactors, graceDays: String(graceDays)}, extraHeaders);
 }
 
 /**
@@ -70,20 +90,8 @@ export function setGlobalEnforcement(enforcedFactors: string, graceDays = 0) {
  * `redirect=` param carrying the page the user was after. Specs MUST clear them in after() —
  * a leftover URL would reroute every other spec's 401s to a deleted page.
  */
-export function setGlobalMfaUrls(loginUrl: string, logoutUrl = '') {
-    const password = Cypress.env('SUPER_USER_PASSWORD') as string;
-    cy.request({
-        method: 'POST',
-        url: '/modules/api/provisioning',
-        auth: {user: 'root', pass: password},
-        headers: {'Content-Type': 'application/json'},
-        body: [{
-            editConfiguration: 'org.jahia.modules.mfa.extensions',
-            properties: {loginUrl, logoutUrl},
-        }],
-    });
-    // Give ConfigAdmin a moment to dispatch the @Modified event to the provider.
-    cy.wait(2000);
+export function setGlobalMfaUrls(loginUrl: string, logoutUrl = '', extraHeaders: Record<string, string> = {}) {
+    editMfaExtensionsConfig({loginUrl, logoutUrl}, extraHeaders);
 }
 
 /**

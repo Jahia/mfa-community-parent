@@ -33,9 +33,10 @@ import static org.junit.Assert.assertTrue;
  *   <li>BLOCK a gated, non-whitelisted password login - NOT continue the pipeline, and write a
  *       redirect to the configured login page (or {@code 403} when none is distinct);</li>
  *   <li>continue the pipeline (defense to the servlet filter) when the decision service is absent;</li>
- *   <li>gate a password carried in the {@code Authorization} header the same way, answering
- *       {@code 403} (a non-interactive caller has no login page to follow) and leaving a token
- *       scheme alone;</li>
+ *   <li>leave a password carried in the {@code Authorization} header ALONE unless the operator armed
+ *       {@code loginGate.gateBasicAuth} - that shape reaches every endpoint, so it is opt-in;</li>
+ *   <li>once armed, gate that header the same way, answering {@code 403} (a non-interactive caller
+ *       has no login page to follow) and leaving a token scheme alone;</li>
  *   <li>register at the head of the pipeline, ahead of both valves that consume a password.</li>
  * </ul>
  */
@@ -79,13 +80,33 @@ public class MfaLoginGateAuthValveTest {
     }
 
     @Test
-    public void gatedHeaderCredential_blocksWith403EvenWhenALoginUrlIsConfigured() throws Exception {
-        // A password carried in the Authorization header is a single factor exactly like the form
-        // parameters, so it is gated the same way - but the caller is a non-interactive client, so the
-        // answer is 403 and never a redirect, even with a distinct login page configured.
+    public void gatedHeaderCredential_continuesPipelineWhenTheBasicAuthGateIsNotArmed() throws Exception {
+        // THE DEFAULT POSTURE, and the reason the switch exists. The header shape reaches every
+        // endpoint - the provisioning API and GraphQL included - so with loginGate.gateBasicAuth
+        // unset a gated, non-whitelisted Basic credential must still reach the pipeline. Blocking it
+        // by default would refuse every integration platform-wide (and the API needed to revert)
+        // the moment ONE site enforces a factor.
         StubDecision decision = new StubDecision();
         decision.gated = true;
         decision.whitelisted = false;
+        decision.basicAuthGateEnabled = false; // shipped default
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());
+        assertTrue("not armed => a header credential must reach the pipeline", recorder.invokedNext.get());
+        assertNull(recorder.errorSent.get());
+        assertNull("and must certainly not be redirected", recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void gatedHeaderCredential_blocksWith403EvenWhenALoginUrlIsConfigured() throws Exception {
+        // Armed: a password carried in the Authorization header is a single factor exactly like the
+        // form parameters, so it is gated the same way - but the caller is a non-interactive client,
+        // so the answer is 403 and never a redirect, even with a distinct login page configured.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.whitelisted = false;
+        decision.basicAuthGateEnabled = true;
         decision.distinctLoginUrl = "/sites/mySite/login.html";
         Recorder recorder = new Recorder();
         valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());
@@ -96,9 +117,12 @@ public class MfaLoginGateAuthValveTest {
 
     @Test
     public void gatedHeaderCredential_isMatchedCaseInsensitively() throws Exception {
-        // RFC 7235 makes the scheme token case-insensitive, so the gate covers every spelling.
+        // The gate matches the scheme token case-insensitively, which makes it a strict SUPERSET of
+        // every consumer's trigger: Jahia's HttpBasicAuthValve requires the exact "Basic " spelling,
+        // Jackrabbit's DAV credentials provider does not. Over-matching is the fail-safe direction.
         StubDecision decision = new StubDecision();
         decision.gated = true;
+        decision.basicAuthGateEnabled = true;
         Recorder recorder = new Recorder();
         HttpServletRequest request = requestWithAuthorization("basic YWxpY2U6czNjcmV0");
         valve(decision).invoke(authContext(request, recorder.response), recorder.context());
@@ -110,6 +134,7 @@ public class MfaLoginGateAuthValveTest {
     public void notGatedHeaderCredential_continuesPipeline() throws Exception {
         StubDecision decision = new StubDecision();
         decision.gated = false;
+        decision.basicAuthGateEnabled = true; // armed, but nothing enforces => nothing to close
         Recorder recorder = new Recorder();
         valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());
         assertTrue("not gated => the header credential may authenticate", recorder.invokedNext.get());
@@ -121,6 +146,7 @@ public class MfaLoginGateAuthValveTest {
     public void whitelistedHeaderCredential_continuesPipeline() throws Exception {
         StubDecision decision = new StubDecision();
         decision.gated = true;
+        decision.basicAuthGateEnabled = true;
         decision.whitelisted = true; // the same emergency door as the form-parameter path
         Recorder recorder = new Recorder();
         valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());
@@ -131,15 +157,49 @@ public class MfaLoginGateAuthValveTest {
     @Test
     public void nonPasswordAuthorizationScheme_continuesPipeline() throws Exception {
         // Only a password carried in the header is this gate's business: a token scheme presents no
-        // password and carries its own policy, so it continues even while gated.
+        // password and carries its own policy, so it continues even while gated AND armed.
         StubDecision decision = new StubDecision();
         decision.gated = true;
+        decision.basicAuthGateEnabled = true;
         Recorder recorder = new Recorder();
         HttpServletRequest request = requestWithAuthorization("Bearer abcdef.0123456789");
         valve(decision).invoke(authContext(request, recorder.response), recorder.context());
         assertTrue("a token credential is not gated here", recorder.invokedNext.get());
         assertNull(recorder.errorSent.get());
         assertNull(recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void bothCredentialShapes_answerInTheHeaderShapeWhenArmed() throws Exception {
+        // A request carrying BOTH shapes would be consumed by HttpBasicAuthValve, which sits at the
+        // head of the pipeline ahead of LoginEngineAuthValve - so the answer is the one that caller
+        // can act on: 403, not a redirect to a login page it will never render.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.basicAuthGateEnabled = true;
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestWith("alice", "s3cret", "Basic YWxpY2U6czNjcmV0");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertFalse(recorder.invokedNext.get());
+        assertEquals(Integer.valueOf(HttpServletResponse.SC_FORBIDDEN), recorder.errorSent.get());
+        assertNull(recorder.redirectedTo.get());
+    }
+
+    @Test
+    public void bothCredentialShapes_stillBlockTheFormLoginWhenTheBasicAuthGateIsNotArmed() throws Exception {
+        // The unarmed header must not MASK the form shape: a /cms/login POST that also happens to
+        // carry a stale Authorization header is still a password-only login attempt, and the
+        // unconditional /cms/login block has to keep applying to it.
+        StubDecision decision = new StubDecision();
+        decision.gated = true;
+        decision.basicAuthGateEnabled = false;
+        decision.distinctLoginUrl = "/sites/mySite/login.html";
+        Recorder recorder = new Recorder();
+        HttpServletRequest request = requestWith("alice", "s3cret", "Basic YWxpY2U6czNjcmV0");
+        valve(decision).invoke(authContext(request, recorder.response), recorder.context());
+        assertFalse("the form-parameter block is not opt-in", recorder.invokedNext.get());
+        assertEquals("/sites/mySite/login.html", recorder.redirectedTo.get());
     }
 
     @Test
@@ -387,16 +447,23 @@ public class MfaLoginGateAuthValveTest {
         }
     }
 
-    /** A stub decision with directly settable answers for the valve's three queries. */
+    /** A stub decision with directly settable answers for the valve's queries. */
     private static final class StubDecision extends MfaLoginGateDecision {
         private boolean gated;
         private boolean whitelisted;
         private boolean hardGateEnabled;
+        /** loginGate.gateBasicAuth; false here mirrors the shipped default. */
+        private boolean basicAuthGateEnabled;
         private String distinctLoginUrl;
 
         @Override
         public boolean isGated(HttpServletRequest request) {
             return gated;
+        }
+
+        @Override
+        public boolean isBasicAuthGateEnabled() {
+            return basicAuthGateEnabled;
         }
 
         @Override

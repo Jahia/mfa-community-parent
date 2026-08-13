@@ -26,6 +26,11 @@ import java.util.List;
  * session and the filter can only redirect the response. The valve closes that hole; this filter
  * remains for the credential-free GET case and as a backstop.
  * <p>
+ * Scope note: this filter is bound to {@code /cms/login} by its URL patterns, whereas the valve runs
+ * on every request in the authentication pipeline. That difference is why the valve's
+ * {@code Authorization: Basic} coverage is opt-in ({@code loginGate.gateBasicAuth}) - see
+ * {@link MfaLoginGateAuthValve}. Nothing in this filter reacts to that switch.
+ * <p>
  * The actual gating decision (enforcement active, per-site/no-site activation, readiness fail-closed,
  * IP whitelist, configured login URL) lives in the shared {@link MfaLoginGateDecision} component, so
  * the filter and the valve never drift apart. This class only maps the decision onto servlet
