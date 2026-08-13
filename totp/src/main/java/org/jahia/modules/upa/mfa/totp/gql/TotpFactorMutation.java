@@ -647,7 +647,8 @@ public class TotpFactorMutation {
     @GraphQLName("resetUserMfa")
     @GraphQLDescription("Admin recovery: clear a user's TOTP enrollment (secret + backup codes) WITHOUT "
             + "requiring their code, for users who lost their device and backup codes. Caller must be a "
-            + "site administrator on the given site.")
+            + "site administrator on the given site AND the target user must be one of that site's own "
+            + "users; resetting a global user (root included) requires server administration.")
     public boolean resetUserMfa(
             @GraphQLName("userId") @GraphQLNonNull String userId,
             @GraphQLName("siteKey") @GraphQLNonNull String siteKey) {
@@ -655,7 +656,11 @@ public class TotpFactorMutation {
         if (StringUtils.isBlank(userId)) {
             throw new DataFetchingException("userId must not be blank");
         }
-        TotpAdminAccess.requireSiteAdmin(siteKey);
+        // Authorize the SUBJECT, not just the site: the writes below run against a system session
+        // on an unconstrained userId, so site administration alone would let the admin of any minor
+        // site strip root's second factor. This also resolves the user, so an unknown userId is
+        // reported instead of returning a misleading "true".
+        TotpAdminAccess.requireSiteAdminForUser(userId, siteKey);
         String admin = currentUserName();
         try {
             userStore.disable(userId);

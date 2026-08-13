@@ -24,4 +24,14 @@ final class TotpAdminAccess {
     static JCRSessionWrapper requireSiteAdmin(String siteKey) {
         return MfaAdminAccess.requireSiteAdmin(siteKey, ERROR_PREFIX);
     }
+
+    /**
+     * Require site administration on {@code siteKey} AND authorization over the target user for an
+     * operation that acts on that user with a system session (the admin reset). The site alone
+     * never authorizes a subject outside its own user tree &mdash; see
+     * {@link MfaAdminAccess#requireSiteAdminForUser}.
+     */
+    static JCRSessionWrapper requireSiteAdminForUser(String userId, String siteKey) {
+        return MfaAdminAccess.requireSiteAdminForUser(userId, siteKey, ERROR_PREFIX);
+    }
 }

@@ -46,15 +46,25 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>nothing is gated while the global enforcement policy ({@link MfaGlobalPolicy}) lists no
  *       factors;</li>
- *   <li>requests carrying a site context (the {@code site} request parameter or the
- *       {@code siteKey} request attribute) are gated when THAT site has one of the globally
- *       enforced factors {@code enabled};</li>
- *   <li>requests with no site context (the common case for {@code /cms/login}) are gated when
- *       ANY site has an enforced factor enabled - the endpoint authenticates globally, so a
- *       single such site is enough to make it a bypass vector;</li>
+ *   <li>once enforcement IS active, a request is gated when ANY site has one of the enforced
+ *       factors enabled - {@code /cms/login} authenticates GLOBALLY (the session it hands out is
+ *       valid on every site), so a single such site is enough to make the endpoint a bypass
+ *       vector;</li>
+ *   <li>a site context (the {@code site} request parameter or the {@code siteKey} request
+ *       attribute) may only ADD gating, never remove it - see {@link #isGated};</li>
  *   <li>gated requests are exempt when the client IP matches the configured whitelist, so
  *       operators keep an emergency/back-office door (e.g. their VPN range).</li>
  * </ul>
+ * <p>
+ * <b>The site context must never NARROW the decision:</b> this gate runs on a fully
+ * unauthenticated endpoint, so every input it reads is attacker-controlled. Resolving the site
+ * from the {@code site} REQUEST PARAMETER and then asking only "does THAT site enforce?" turned
+ * the gate into an opt-out: {@code POST /cms/login} with {@code &site=<any-name-not-enforcing>}
+ * (a site where the factor is not enabled, or a site key that does not exist at all - the
+ * parameter was only syntax-checked against {@link #SITE_KEY_PATTERN}, never against the set of
+ * real sites) reported "not enforcing" and let the classic password valve complete a full
+ * password-only authentication. The site is therefore now only a HINT that may raise, never
+ * lower, the answer (see {@link #resolveSiteHint}).
  * <p>
  * This component is factor-agnostic: it discovers per-site activation through every registered
  * {@link MfaSiteProvider} (TOTP, WebAuthn, ...) and intersects it with the global policy. It
@@ -273,9 +283,19 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
     }
 
     /**
-     * Whether this request must be gated: global enforcement is active AND the request's site
-     * (when identifiable) has one of the enforced factors enabled, or - with no site context -
-     * any site does. Fails CLOSED when a provider cannot answer (throws).
+     * Whether this request must be gated: global enforcement is active AND at least one site has
+     * one of the enforced factors enabled. The request's site context is consulted FIRST, but
+     * purely as a widening hint - the two answers are OR-ed, never substituted:
+     * <ul>
+     *   <li>the (uncached) per-site answer closes the bounded {@value #ENFORCING_CACHE_MILLIS} ms
+     *       staleness window of the any-site cache for a request that names an enforcing site;</li>
+     *   <li>the any-site answer is always evaluated when the per-site one is negative, so an
+     *       attacker-supplied {@code site} parameter naming a non-enforcing (or non-existent) site
+     *       can no longer turn the gate OFF - an unauthenticated request must never be able to
+     *       narrow an access-control decision.</li>
+     * </ul>
+     * Fails CLOSED when a provider cannot answer (throws) and while the per-site configuration is
+     * not ready yet.
      */
     public boolean isGated(HttpServletRequest request) {
         if (!globalPolicy.isEnforcementActive()) {
@@ -291,11 +311,13 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
                     + "while enforcement is active");
             return true;
         }
-        String siteKey = resolveSiteKey(request);
-        if (siteKey != null) {
-            return anyEnforcesForSite(siteKey);
+        String siteHint = resolveSiteHint(request);
+        if (siteHint != null && anyEnforcesForSite(siteHint)) {
+            return true;
         }
-        // No resolvable site: the "any site enforcing?" decision over every site.
+        // The site hint said nothing (absent, or that site does not enforce): fall through to the
+        // "any site enforcing?" decision over every site. This fall-through is the fix - the hint
+        // can only raise the answer, never lower it.
         return isAnySiteEnforcingCached();
     }
 
@@ -349,8 +371,16 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
         return false;
     }
 
-    /** The {@code site} parameter (validated) or the {@code siteKey} attribute, else {@code null}. */
-    private static String resolveSiteKey(HttpServletRequest request) {
+    /**
+     * The site this request CLAIMS to be about: the {@code site} parameter (syntax-validated) or
+     * the server-derived {@code siteKey} attribute, else {@code null}.
+     * <p>
+     * This is a HINT, not a trusted fact: the parameter is client-supplied on an unauthenticated
+     * endpoint and {@link #SITE_KEY_PATTERN} only rules out path traversal - it does not (and
+     * cannot cheaply) prove that the named site exists. {@link #isGated} therefore uses the result
+     * only to gate MORE, never less.
+     */
+    private static String resolveSiteHint(HttpServletRequest request) {
         String param = StringUtils.trimToNull(request.getParameter(PARAM_SITE));
         if (param != null && SITE_KEY_PATTERN.matcher(param).matches()) {
             return param;

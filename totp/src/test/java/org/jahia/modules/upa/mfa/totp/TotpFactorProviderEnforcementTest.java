@@ -32,6 +32,10 @@ import static org.junit.Assert.fail;
  * ONE of the enforced factors, the others skip. Covers the site-scoped rows — site disabled,
  * non-enforced opt-in, pick-one satisfied in-session, sibling factor configured, and the
  * grace-window/enrollment-required terminal cases.
+ * <p>
+ * Per-site activation is an opt-IN switch layered on top: it may keep a NON-enforced factor out of
+ * the way, but it must never suppress a globally enforced one — the site key is client-supplied on
+ * {@code mfaInitiate}, so the opposite ordering was a full second-factor bypass.
  */
 public class TotpFactorProviderEnforcementTest {
 
@@ -95,10 +99,39 @@ public class TotpFactorProviderEnforcementTest {
     // --- site activation rows -------------------------------------------------------------
 
     @Test
-    public void siteDisabled_skips() throws Exception {
+    public void siteDisabled_skipsWhenTheFactorIsNotGloballyEnforced() throws Exception {
+        // The legitimate opt-in row: TOTP is not enforced platform-wide and this site does not use
+        // it, so the factor steps aside for the session.
+        siteSettingsStore.enabled = false;
+        configurePolicy("", null);
+        assertTrue(isSkipped(provider.prepare(ctx())));
+    }
+
+    @Test
+    public void siteDisabled_doesNotSuppressAGloballyEnforcedFactor_enrolledUserIsChallenged() throws Exception {
+        // The bypass: the site key travels in the MFA session context and comes from a
+        // CLIENT-SUPPLIED argument on mfaInitiate, so naming a site with no TOTP configuration
+        // (e.g. systemsite) used to return a SKIPPED preparation for a globally enforced factor —
+        // and verify() accepts any submission (empty code included) for a skipped preparation.
         siteSettingsStore.enabled = false;
         configurePolicy("totp", null);
-        assertTrue(isSkipped(provider.prepare(ctx())));
+        userStore.enrolled = true;
+        assertFalse("global enforcement outranks per-site activation", isSkipped(provider.prepare(ctx())));
+    }
+
+    @Test
+    public void siteDisabled_doesNotSuppressAGloballyEnforcedFactor_unenrolledUserIsBlocked() {
+        // Same shape, with the user owning NO enforced factor: the enrollment-required path must
+        // apply (the reproduced attack used exactly this state — root not enrolled, graceDays=0).
+        siteSettingsStore.enabled = false;
+        configurePolicy("totp", "0");
+        userStore.enrolled = false;
+        try {
+            provider.prepare(ctx());
+            fail("expected enrollment_required — a skipped preparation would complete sign-in unchallenged");
+        } catch (MfaException e) {
+            assertEquals(TotpFactorProvider.ERROR_ENROLLMENT_REQUIRED, e.getCode());
+        }
     }
 
     // --- non-enforced rows ----------------------------------------------------------------

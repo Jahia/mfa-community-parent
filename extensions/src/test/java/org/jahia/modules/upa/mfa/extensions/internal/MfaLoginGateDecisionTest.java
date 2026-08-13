@@ -28,7 +28,9 @@ import static org.junit.Assert.assertTrue;
 /**
  * The shared /cms/login gating decision: whitelist matching (the client IP - first X-Forwarded-For
  * entry when trusted - must match a configured address or CIDR block; never DNS-resolved, mixed
- * IPv4/IPv6 never match), the global-policy &cap; per-site activation gating, the X-Forwarded-For
+ * IPv4/IPv6 never match), the global-policy &cap; per-site activation gating, the rule that a
+ * request-supplied site context may only WIDEN the decision (an unauthenticated request must never
+ * narrow an access-control answer), the X-Forwarded-For
  * trust switch, resilience to Tomcat's {@code RemoteIpValve} rewriting {@code getRemoteAddr()}
  * from a forged header (GHSA-4v3g-mcmj-83fp), the startup fail-CLOSED readiness guard, and
  * login-URL resolution.
@@ -185,6 +187,74 @@ public class MfaLoginGateDecisionTest {
     public void isGated_trueWhenAnySiteEnforcesAndNoSiteContext() {
         MfaLoginGateDecision decision = decisionWith("totp", provider("totp", true, true, false));
         assertTrue(decision.isGated(loginRequest()));
+    }
+
+    // --- The site context may only WIDEN the decision, never narrow it ------------------------
+    //
+    // /cms/login is unauthenticated, so the `site` request PARAMETER is attacker-controlled and is
+    // only syntax-checked (it is never matched against the set of real sites). Resolving the site
+    // from it and then asking "does THAT site enforce?" made the gate opt-out: a POST carrying
+    // &site=<a site where the factor is not enabled, or a name that does not exist at all> reported
+    // "not enforcing" and the classic password valve completed a full password-only sign-in. The
+    // site is now a hint that may only raise the answer.
+
+    @Test
+    public void isGated_siteParameterNamingANonEnforcingSiteCannotDisableTheGate() {
+        // 'enforcingSite' has the enforced factor enabled; the attacker names another key.
+        MfaLoginGateDecision decision = decisionWith("totp", siteScopedProvider("totp", "enforcingSite"));
+        assertTrue("precondition: the gate blocks without a site context", decision.isGated(loginRequest()));
+        assertFalse("precondition: the named site really does not enforce",
+                decision.anyEnforcesForSite("zzznonexistent"));
+
+        assertTrue("a client-supplied site parameter must never turn the gate off",
+                decision.isGated(loginRequestWithSiteParameter("zzznonexistent")));
+    }
+
+    @Test
+    public void isGated_siteAttributeNamingANonEnforcingSiteCannotDisableTheGate() {
+        // Same for the server-derived siteKey attribute: it is a narrower context, not a licence to
+        // skip - /cms/login hands out a session valid on EVERY site, including the enforcing one.
+        MfaLoginGateDecision decision = decisionWith("totp", siteScopedProvider("totp", "enforcingSite"));
+        assertTrue(decision.isGated(loginRequestWithSiteAttribute("otherSite")));
+    }
+
+    @Test
+    public void isGated_siteParameterNamingAnEnforcingSiteStillGates() {
+        // The widening direction still works, and does so on the UNCACHED per-site path (the E2E
+        // "gates per-site via the site parameter" case): the provider reports "no site enabled" so
+        // only the explicit site context can produce the block.
+        MfaLoginGateDecision decision = decisionWith("totp", new MfaSiteProvider() {
+            @Override
+            public String getFactorType() {
+                return "totp";
+            }
+
+            @Override
+            public boolean isEnabledForSite(String siteKey) {
+                return "enforcingSite".equals(siteKey);
+            }
+
+            @Override
+            public boolean isAnySiteEnabled() {
+                return false; // e.g. a stale/empty aggregate answer
+            }
+
+            @Override
+            public boolean isConfiguredForUser(String userId) {
+                return false;
+            }
+        });
+        assertFalse("precondition: nothing gates without a site context", decision.isGated(loginRequest()));
+        assertTrue("an explicitly named enforcing site must gate",
+                decision.isGated(loginRequestWithSiteParameter("enforcingSite")));
+    }
+
+    @Test
+    public void isGated_siteContextDoesNotOverBlockWhenNoSiteEnforces() {
+        // The fix must not degenerate into "always gate while enforcement is active": with the
+        // factor enabled on NO site, a request carrying a site context stays unblocked.
+        MfaLoginGateDecision decision = decisionWith("totp", provider("totp", false, false, false));
+        assertFalse(decision.isGated(loginRequestWithSiteParameter("anySite")));
     }
 
     // --- isCmsLogin recognition ----------------------------------------------------------
@@ -421,6 +491,73 @@ public class MfaLoginGateDecisionTest {
                             return null;
                     }
                 });
+    }
+
+    /** A GET /cms/login carrying the client-supplied {@code site} request parameter. */
+    private static HttpServletRequest loginRequestWithSiteParameter(String siteParam) {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                MfaLoginGateDecisionTest.class.getClassLoader(),
+                new Class<?>[]{HttpServletRequest.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "getParameter":
+                            return "site".equals(args[0]) ? siteParam : null;
+                        case "getRequestURI":
+                            return "/cms/login";
+                        case "getContextPath":
+                            return "";
+                        case "getRemoteAddr":
+                            return "198.51.100.23";
+                        default:
+                            return null;
+                    }
+                });
+    }
+
+    /** A GET /cms/login whose site context comes from Jahia's own resolution (the attribute). */
+    private static HttpServletRequest loginRequestWithSiteAttribute(String siteKey) {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                MfaLoginGateDecisionTest.class.getClassLoader(),
+                new Class<?>[]{HttpServletRequest.class},
+                (proxy, method, args) -> {
+                    switch (method.getName()) {
+                        case "getAttribute":
+                            return "siteKey".equals(args[0]) ? siteKey : null;
+                        case "getRequestURI":
+                            return "/cms/login";
+                        case "getContextPath":
+                            return "";
+                        case "getRemoteAddr":
+                            return "198.51.100.23";
+                        default:
+                            return null;
+                    }
+                });
+    }
+
+    /** A provider whose factor is enabled on exactly ONE site (and therefore on "any" site). */
+    private static MfaSiteProvider siteScopedProvider(String type, String enabledSiteKey) {
+        return new MfaSiteProvider() {
+            @Override
+            public String getFactorType() {
+                return type;
+            }
+
+            @Override
+            public boolean isEnabledForSite(String siteKey) {
+                return enabledSiteKey.equals(siteKey);
+            }
+
+            @Override
+            public boolean isAnySiteEnabled() {
+                return true;
+            }
+
+            @Override
+            public boolean isConfiguredForUser(String userId) {
+                return false;
+            }
+        };
     }
 
     static MfaLoginGateDecision decisionWith(String enforcedFactors, MfaSiteProvider... providers) {

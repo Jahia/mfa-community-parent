@@ -35,6 +35,11 @@ import java.util.concurrent.TimeUnit;
  * The circular skip-drain guard ({@link SkippablePreparation#isSkipDrained}) is preserved exactly:
  * a factor drained as skipped carries a verified flag but was never challenged, so it must NOT
  * satisfy pick-one for its siblings.
+ * <p>
+ * Per-site activation ({@link FactorEnforcementCallbacks#isSiteApplicable}) is an OPT-IN switch
+ * layered ON TOP of the rows above: it may bring a non-enforced factor into play for a site, but
+ * it may never suppress a globally enforced one &mdash; see {@link #prepare} for the bypass that
+ * ordering flaw produced.
  */
 public class MfaEnforcementDecider {
 
@@ -91,6 +96,9 @@ public class MfaEnforcementDecider {
          * when BOTH hold; a disabled site OR an out-of-scope user yields {@code false}. Loading the
          * snapshot once is a correctness invariant (the enabled check and the group/scope check
          * must see the same site-settings snapshot).
+         * <p>
+         * Only consulted for a factor that is NOT globally enforced: this decides opt-IN, it may
+         * never opt a globally enforced factor OUT (see {@link MfaEnforcementDecider#prepare}).
          */
         boolean isSiteApplicable(String userId, String siteKey) throws MfaException;
 
@@ -104,30 +112,46 @@ public class MfaEnforcementDecider {
 
     /**
      * The full {@code prepare} decision, including the per-site activation/scoping shell that both
-     * factor providers used to mirror. With a resolvable site the factor is skipped when disabled
-     * or the user is out of scope, then the site-scoped pick-one rows apply; without one, global
-     * enforcement still applies (vanity login URLs carry no {@code /sites/<key>} prefix) and the
-     * legacy "challenge the configured user, reject the rest" behavior stands when not enforced.
+     * factor providers used to mirror. GLOBAL enforcement is evaluated FIRST: a globally enforced
+     * factor always runs the pick-one rows, whatever the site says; only a factor that is NOT
+     * globally enforced is subject to per-site activation (the legitimate opt-in behavior), and is
+     * then skipped when the site has it disabled or the user is out of the site's policy groups.
+     * Without a resolvable site, global enforcement still applies (vanity login URLs carry no
+     * {@code /sites/<key>} prefix) and the legacy "challenge the configured user, reject the rest"
+     * behavior stands when not enforced.
+     * <p>
+     * <b>Why the order matters (per-site activation must never SUPPRESS global enforcement):</b>
+     * the site key travels in the MFA session context, and on the {@code mfaInitiate} entry point
+     * it comes straight from a CLIENT-SUPPLIED GraphQL argument. Running the per-site
+     * applicability check first therefore let a caller who had only proven the password name any
+     * site where the factor is not enabled (e.g. {@code systemsite}) and receive a "skipped"
+     * preparation for a factor the platform globally enforces &mdash; and a skipped preparation is
+     * accepted by {@code verify} for ANY submission (including an empty code), completing
+     * authentication with no second factor at all. Enforcement is a platform-wide decision; a
+     * per-site switch may only add a factor, never remove an enforced one.
      */
     public Serializable prepare(PreparationContext preparationContext, FactorEnforcementCallbacks callbacks)
             throws MfaException {
         final String factorType = callbacks.factorType();
         String userId = preparationContext.getSessionContext().getUserId();
         String siteKey = preparationContext.getSessionContext().getSiteKey();
+        boolean enforced = globalPolicy.isEnforced(factorType);
 
         if (StringUtils.isNotBlank(siteKey)) {
             // Single site-settings snapshot: the enabled check and the group/scope check must read
             // the SAME snapshot, so they are collapsed into one applicability decision (skip when
-            // the site is disabled OR the user is out of scope).
-            if (!callbacks.isSiteApplicable(userId, siteKey)) {
-                logger.debug("{} skipped for user {} (site '{}' not applicable: disabled or not in scope)",
-                        factorType, userId, siteKey);
+            // the site is disabled OR the user is out of scope). Consulted ONLY for a factor that
+            // is not globally enforced - otherwise the enforced rows below (challenge / sibling /
+            // grace / enrollment_required) apply regardless of the site.
+            if (!enforced && !callbacks.isSiteApplicable(userId, siteKey)) {
+                logger.debug("{} skipped for user {} (site '{}' not applicable: disabled or not in scope, "
+                        + "and the factor is not globally enforced)", factorType, userId, siteKey);
                 return callbacks.buildSkippedPreparation();
             }
             return prepareForSite(preparationContext, userId, siteKey, callbacks);
         }
 
-        if (globalPolicy.isEnforced(factorType)) {
+        if (enforced) {
             return prepareForGlobalOnly(preparationContext, userId, callbacks);
         }
         if (!callbacks.isConfiguredForUser(userId)) {
@@ -287,10 +311,16 @@ public class MfaEnforcementDecider {
     }
 
     /**
-     * The factors offered for inline enrollment on {@code siteKey}: the globally enforced factors
-     * that are enabled on this site (or simply installed, when no site context is available).
-     * Factors that cannot be set up from the sign-in flow (e.g. the email-code adapter) are never
-     * offered. A provider that cannot answer is simply not offered.
+     * The factors offered for inline enrollment: every globally enforced factor that CAN be set up
+     * from the sign-in flow. Factors that cannot (e.g. the email-code adapter) are never offered.
+     * <p>
+     * Deliberately NOT filtered by per-site enablement, and the {@code siteKey} is carried only for
+     * the diagnostic log below. This mirrors {@link #prepare}: once a factor is globally enforced,
+     * a per-site switch may no longer opt a user out of it. Filtering here would contradict that -
+     * a user on a site where the enforced factor happens to be disabled would be told
+     * {@code enrollment_required} and then offered NOTHING to enrol, which is an unrecoverable
+     * sign-in. Enforcement is the platform-wide decision; per-site activation only ADDS optional
+     * factors, so an enforced factor must remain enrollable everywhere it is enforced.
      */
     private String enrollableFactorsForSite(String siteKey) {
         List<String> offered = new ArrayList<>();
@@ -299,15 +329,29 @@ public class MfaEnforcementDecider {
                 if (!factor.equals(provider.getFactorType()) || !provider.isInlineEnrollable()) {
                     continue;
                 }
-                try {
-                    if (StringUtils.isBlank(siteKey) || provider.isEnabledForSite(siteKey)) {
-                        offered.add(factor);
-                    }
-                } catch (RuntimeException e) {
-                    logger.warn("Could not evaluate {} availability on site {}: {}", factor, siteKey, e.getMessage());
+                offered.add(factor);
+                if (StringUtils.isNotBlank(siteKey)) {
+                    logEnrollmentOfferedOnDisabledSite(provider, factor, siteKey);
                 }
             }
         }
         return String.join(",", offered);
+    }
+
+    /**
+     * Flag the misconfiguration that used to hide behind the per-site filter: a factor enforced
+     * platform-wide but switched off on the site the user is signing in to. Enrollment is offered
+     * anyway (see {@link #enrollableFactorsForSite}), so this is a warning, not a decision.
+     */
+    private void logEnrollmentOfferedOnDisabledSite(MfaSiteProvider provider, String factor, String siteKey) {
+        try {
+            if (!provider.isEnabledForSite(siteKey)) {
+                logger.warn("Offering inline enrollment for '{}' on site '{}' although the factor is DISABLED "
+                        + "there: it is listed in the global enforcedFactors, which overrides per-site "
+                        + "activation. Enable it on the site, or drop it from enforcedFactors.", factor, siteKey);
+            }
+        } catch (RuntimeException e) {
+            logger.warn("Could not evaluate {} availability on site {}: {}", factor, siteKey, e.getMessage());
+        }
     }
 }
