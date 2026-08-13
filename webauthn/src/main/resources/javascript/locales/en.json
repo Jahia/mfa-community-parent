@@ -57,6 +57,7 @@
       "confirmText": "This will immediately remove all of {{userId}}'s registered authenticators. They will sign in without a second factor until they re-register. This cannot be undone.",
       "confirmButton": "Yes, reset this user's WebAuthn",
       "cancelButton": "Cancel",
+      "resetting": "Resetting…",
       "done": "The user's WebAuthn authenticators have been removed."
     },
     "audit": {
@@ -78,7 +79,8 @@
       "permissionDenied": "You don't have permission to change these settings.",
       "notAuthenticated": "Please sign in again to change these settings.",
       "invalidUrl": "The login/logout URL must be a relative path starting with / (e.g. /sites/mySite/login.html). Absolute or external URLs are not allowed.",
-      "generic": "Could not save the settings. Please try again."
+      "generic": "Could not save the settings. Please try again.",
+      "loadFailed": "The current site settings could not be loaded. Saving is disabled until they load successfully, to avoid overwriting them with blank defaults. Please reload the page."
     }
   },
   "mfaCommunity": {

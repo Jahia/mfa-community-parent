@@ -142,7 +142,7 @@ const AuditReportSection = ({siteKey}) => {
     );
 };
 
-// overflowWrap/wordBreak let long free-form values (IPs, user agents, messages) wrap inside their
+// OverflowWrap/wordBreak let long free-form values (IPs, user agents, messages) wrap inside their
 // fixed-width column instead of forcing the table wider than its container.
 const cell = {border: '1px solid #e0e0e0', padding: '4px 8px', textAlign: 'left', fontSize: '0.85rem', verticalAlign: 'top', wordBreak: 'break-word', overflowWrap: 'anywhere'};
 // The timestamp is a fixed-shape value: keep it on one line in its sized column.

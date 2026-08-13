@@ -1,0 +1,62 @@
+name: CI
+
+# Runs the Maven reactor build (which now also runs `yarn lint` for the three factor bundles'
+# React apps and produces JaCoCo coverage for the three Java modules) on every push and PR.
+#
+# JDK note: the project's Java *source/target* is 11 (see maven.compiler.source/target in
+# extensions/totp/webauthn's pom.xml), but the JVM *running Maven itself* must be 17+: the
+# com.github.eirslett:frontend-maven-plugin:2.0.1 jar is compiled for class file version 61
+# (Java 17) and fails to load under a Java 11 Maven process ("this version of the Java Runtime
+# only recognizes class file versions up to 55.0"). So this workflow provisions Temurin 17 and
+# lets the compiler plugin cross-compile the Java 11 bytecode as configured per-module.
+#
+# Out of scope / documented follow-up: the Cypress E2E suite under tests/ is intentionally NOT
+# run here. It requires a running Jahia EE instance (a sibling Docker/EE-licensed setup, see
+# tests/docker-compose.yml and tests/README.md) that is not available to a plain GitHub-hosted
+# runner. Wiring that up (self-hosted runner + Jahia EE licence secret + the sibling repo it
+# depends on) should be tracked as a separate follow-up task.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: Build, lint, test, coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build (mvn install: compiles, runs yarn lint + webpack build, unit tests, JaCoCo)
+        run: mvn -B clean install
+
+      - name: Upload surefire test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: |
+            **/target/surefire-reports/**
+          if-no-files-found: warn
+
+      - name: Upload JaCoCo coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-reports
+          path: |
+            extensions/target/jacoco.exec
+            extensions/target/site/jacoco/**
+            totp/target/jacoco.exec
+            totp/target/site/jacoco/**
+            webauthn/target/jacoco.exec
+            webauthn/target/site/jacoco/**
+          if-no-files-found: warn

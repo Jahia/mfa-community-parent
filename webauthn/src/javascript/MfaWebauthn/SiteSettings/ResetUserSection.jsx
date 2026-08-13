@@ -81,7 +81,7 @@ const ResetUserSection = ({siteKey}) => {
                         <Button color="danger"
                                 data-testid="reset-user-confirm-btn"
                                 isDisabled={loading}
-                                label={t('siteSettings.reset.confirmButton')}
+                                label={loading ? t('siteSettings.reset.resetting') : t('siteSettings.reset.confirmButton')}
                                 onClick={reset}/>
                         <Button data-testid="reset-user-cancel-btn"
                                 label={t('siteSettings.reset.cancelButton')}

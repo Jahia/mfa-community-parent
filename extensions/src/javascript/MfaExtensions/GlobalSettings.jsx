@@ -45,7 +45,7 @@ const GlobalSettings = () => {
     const [enforcedFactors, setEnforcedFactors] = useState([]);
     const [graceDays, setGraceDays] = useState(0);
     const [gateEnabled, setGateEnabled] = useState(false);
-    const [trustForwardedFor, setTrustForwardedFor] = useState(true);
+    const [trustForwardedFor, setTrustForwardedFor] = useState(false);
     const [ipWhitelist, setIpWhitelist] = useState('');
     const [loginUrl, setLoginUrl] = useState('');
     const [logoutUrl, setLogoutUrl] = useState('');
@@ -53,7 +53,13 @@ const GlobalSettings = () => {
     const [savedAt, setSavedAt] = useState(null);
     const [errorKey, setErrorKey] = useState(null);
 
-    const {data, loading} = useQuery(ConfigurationQuery, {fetchPolicy: 'network-only'});
+    const {data, loading, error} = useQuery(ConfigurationQuery, {fetchPolicy: 'network-only'});
+    // Tracks whether the form has actually been populated from a successful query response, as
+    // opposed to still holding its constructor defaults. Save must stay disabled until this is
+    // true - otherwise a failed/aborted load looks like a legitimate "everything off" config and
+    // Save would happily persist those defaults over the real platform configuration (see the
+    // applyUpdate "every non-null field overwrites" contract server-side).
+    const [configLoaded, setConfigLoaded] = useState(false);
 
     useEffect(() => {
         const c = data && data.mfaExtensionsConfiguration;
@@ -62,11 +68,12 @@ const GlobalSettings = () => {
             setEnforcedFactors(c.enforcedFactors || []);
             setGraceDays(Number(c.graceDays) || 0);
             setGateEnabled(Boolean(c.loginGateEnabled));
-            setTrustForwardedFor(c.loginGateTrustForwardedFor !== false);
+            setTrustForwardedFor(c.loginGateTrustForwardedFor === true);
             setIpWhitelist(c.loginGateIpWhitelist || '');
             setLoginUrl(c.loginUrl || '');
             setLogoutUrl(c.logoutUrl || '');
             setResetNotifyEmail(c.resetNotifyEmail || '');
+            setConfigLoaded(true);
         }
     }, [data]);
 
@@ -111,7 +118,7 @@ const GlobalSettings = () => {
         <Button key="save"
                 size="big"
                 color="accent"
-                isDisabled={saving || loading}
+                isDisabled={saving || loading || !configLoaded || Boolean(error)}
                 data-testid="extensions-global-save-btn"
                 label={saving ? t('settings.saving') : t('settings.save')}
                 onClick={save}/>
@@ -119,13 +126,13 @@ const GlobalSettings = () => {
 
     return (
         <>
-        {/* WCAG 2.2 SC 2.4.11 (Focus Appearance) + SC 1.4.11 (Non-text Contrast >= 3:1).
+            {/* WCAG 2.2 SC 2.4.11 (Focus Appearance) + SC 1.4.11 (Non-text Contrast >= 3:1).
             #00538b on white yields ~7:1 contrast (AAA). The :focus-visible selector limits
             the ring to keyboard/switch navigation so mouse users are unaffected.
             Injected as a plain <style> element - this module uses inline styles by design
             and has no css-loader in its webpack config. */}
-        <style>{'.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}'}</style>
-        <ContentLayout
+            <style>{'.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}'}</style>
+            <ContentLayout
             paper
             header={(
                 <div style={{backgroundColor: 'white'}}>
@@ -139,116 +146,125 @@ const GlobalSettings = () => {
                 // at the window's right edge; the INNER div caps the readable content width.
                 <div style={{flex: '1 1 0', minHeight: 0, overflowY: 'auto'}}>
                     <div style={{padding: '24px', maxWidth: 760, boxSizing: 'border-box'}}>
-                    {loading ? <Loader/> : (
-                        <>
-                            <Typography style={{marginBottom: 24, display: 'block'}}>
-                                {t('settings.description')}
+                        {loading ? <Loader/> : null}
+                        {!loading && error && (
+                            <Typography role="alert"
+                                        style={{color: '#a00000', display: 'block'}}
+                                        data-testid="extensions-global-load-error"
+                            >
+                                {t('settings.errors.loadFailed')}
                             </Typography>
+                        )}
+                        {!loading && !error && (
+                            <>
+                                <Typography style={{marginBottom: 24, display: 'block'}}>
+                                    {t('settings.description')}
+                                </Typography>
 
-                            <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
-                                {t('settings.enforcement.title')}
-                            </Typography>
-                            <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
-                                {t('settings.enforcement.help')}
-                            </Typography>
-                            {registeredFactors.length === 0 && (
+                                <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
+                                    {t('settings.enforcement.title')}
+                                </Typography>
+                                <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
+                                    {t('settings.enforcement.help')}
+                                </Typography>
+                                {registeredFactors.length === 0 && (
                                 <Typography style={{display: 'block', marginBottom: 16}} data-testid="no-factors">
                                     {t('settings.enforcement.noFactors')}
                                 </Typography>
                             )}
-                            {registeredFactors.map(factor => (
-                                <CheckboxField key={factor}
-                                               id={`enforce-${factor}`}
-                                               testid={`enforce-${factor}-toggle`}
-                                               checked={enforcedFactors.includes(factor)}
-                                               label={factorLabel(factor)}
-                                               help={t('settings.enforcement.factorHelp')}
-                                               onChange={() => toggleFactor(factor)}/>
+                                {registeredFactors.map(factor => (
+                                    <CheckboxField key={factor}
+                                                   id={`enforce-${factor}`}
+                                                   testid={`enforce-${factor}-toggle`}
+                                                   checked={enforcedFactors.includes(factor)}
+                                                   label={factorLabel(factor)}
+                                                   help={t('settings.enforcement.factorHelp')}
+                                                   onChange={() => toggleFactor(factor)}/>
                             ))}
 
-                            <TextField id="extensions-grace"
-                                       testid="extensions-grace-input"
-                                       type="number"
-                                       value={graceDays}
-                                       disabled={enforcedFactors.length === 0}
-                                       min={0}
-                                       max={365}
-                                       label={t('settings.graceDays.label')}
-                                       help={t('settings.graceDays.help')}
-                                       onChange={v => setGraceDays(v)}/>
+                                <TextField id="extensions-grace"
+                                           testid="extensions-grace-input"
+                                           type="number"
+                                           value={graceDays}
+                                           disabled={enforcedFactors.length === 0}
+                                           min={0}
+                                           max={365}
+                                           label={t('settings.graceDays.label')}
+                                           help={t('settings.graceDays.help')}
+                                           onChange={v => setGraceDays(v)}/>
 
-                            <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
-                                {t('settings.gate.title')}
-                            </Typography>
-                            <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
-                                {t('settings.gate.help')}
-                            </Typography>
+                                <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
+                                    {t('settings.gate.title')}
+                                </Typography>
+                                <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
+                                    {t('settings.gate.help')}
+                                </Typography>
 
-                            <CheckboxField id="extensions-gate-enabled"
-                                           testid="extensions-gate-toggle"
-                                           checked={gateEnabled}
-                                           label={t('settings.gate.enabled.label')}
-                                           help={t('settings.gate.enabled.help')}
-                                           onChange={setGateEnabled}/>
+                                <CheckboxField id="extensions-gate-enabled"
+                                               testid="extensions-gate-toggle"
+                                               checked={gateEnabled}
+                                               label={t('settings.gate.enabled.label')}
+                                               help={t('settings.gate.enabled.help')}
+                                               onChange={setGateEnabled}/>
 
-                            <CheckboxField id="extensions-gate-trust-xff"
-                                           testid="extensions-gate-trust-xff-toggle"
-                                           checked={trustForwardedFor}
-                                           label={t('settings.gate.trustForwardedFor.label')}
-                                           help={t('settings.gate.trustForwardedFor.help')}
-                                           onChange={setTrustForwardedFor}/>
+                                <CheckboxField id="extensions-gate-trust-xff"
+                                               testid="extensions-gate-trust-xff-toggle"
+                                               checked={trustForwardedFor}
+                                               label={t('settings.gate.trustForwardedFor.label')}
+                                               help={t('settings.gate.trustForwardedFor.help')}
+                                               onChange={setTrustForwardedFor}/>
 
-                            <TextField id="extensions-gate-whitelist"
-                                       testid="extensions-gate-whitelist-input"
-                                       type="text"
-                                       value={ipWhitelist}
-                                       placeholder="203.0.113.7, 10.0.0.0/8"
-                                       label={t('settings.gate.whitelist.label')}
-                                       help={t('settings.gate.whitelist.help')}
-                                       onChange={v => setIpWhitelist(v)}/>
+                                <TextField id="extensions-gate-whitelist"
+                                           testid="extensions-gate-whitelist-input"
+                                           type="text"
+                                           value={ipWhitelist}
+                                           placeholder="203.0.113.7, 10.0.0.0/8"
+                                           label={t('settings.gate.whitelist.label')}
+                                           help={t('settings.gate.whitelist.help')}
+                                           onChange={v => setIpWhitelist(v)}/>
 
-                            <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
-                                {t('settings.urls.title')}
-                            </Typography>
-                            <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
-                                {t('settings.urls.help')}
-                            </Typography>
+                                <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
+                                    {t('settings.urls.title')}
+                                </Typography>
+                                <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
+                                    {t('settings.urls.help')}
+                                </Typography>
 
-                            <TextField id="extensions-login-url"
-                                       testid="extensions-login-url-input"
-                                       type="text"
-                                       value={loginUrl}
-                                       placeholder="/sites/mySite/login.html"
-                                       label={t('settings.loginUrl.label')}
-                                       help={t('settings.loginUrl.help')}
-                                       onChange={v => setLoginUrl(v)}/>
+                                <TextField id="extensions-login-url"
+                                           testid="extensions-login-url-input"
+                                           type="text"
+                                           value={loginUrl}
+                                           placeholder="/sites/mySite/login.html"
+                                           label={t('settings.loginUrl.label')}
+                                           help={t('settings.loginUrl.help')}
+                                           onChange={v => setLoginUrl(v)}/>
 
-                            <TextField id="extensions-logout-url"
-                                       testid="extensions-logout-url-input"
-                                       type="text"
-                                       value={logoutUrl}
-                                       placeholder="/sites/mySite/logout.html"
-                                       label={t('settings.logoutUrl.label')}
-                                       help={t('settings.logoutUrl.help')}
-                                       onChange={v => setLogoutUrl(v)}/>
+                                <TextField id="extensions-logout-url"
+                                           testid="extensions-logout-url-input"
+                                           type="text"
+                                           value={logoutUrl}
+                                           placeholder="/sites/mySite/logout.html"
+                                           label={t('settings.logoutUrl.label')}
+                                           help={t('settings.logoutUrl.help')}
+                                           onChange={v => setLogoutUrl(v)}/>
 
-                            <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
-                                {t('settings.reset.title')}
-                            </Typography>
-                            <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
-                                {t('settings.reset.help')}
-                            </Typography>
+                                <Typography variant="subheading" weight="bold" style={{display: 'block', margin: '8px 0 16px'}}>
+                                    {t('settings.reset.title')}
+                                </Typography>
+                                <Typography style={{display: 'block', marginBottom: 16, color: '#555'}}>
+                                    {t('settings.reset.help')}
+                                </Typography>
 
-                            <TextField id="extensions-reset-notify-email"
-                                       testid="extensions-reset-notify-email-input"
-                                       type="text"
-                                       value={resetNotifyEmail}
-                                       placeholder="security@example.com, helpdesk@example.com"
-                                       label={t('settings.resetNotifyEmail.label')}
-                                       help={t('settings.resetNotifyEmail.help')}
-                                       onChange={v => setResetNotifyEmail(v)}/>
+                                <TextField id="extensions-reset-notify-email"
+                                           testid="extensions-reset-notify-email-input"
+                                           type="text"
+                                           value={resetNotifyEmail}
+                                           placeholder="security@example.com, helpdesk@example.com"
+                                           label={t('settings.resetNotifyEmail.label')}
+                                           help={t('settings.resetNotifyEmail.help')}
+                                           onChange={v => setResetNotifyEmail(v)}/>
 
-                            {errorKey && (
+                                {errorKey && (
                                 <Typography role="alert"
                                             style={{color: '#a00000', display: 'block', marginTop: 12}}
                                             data-testid="extensions-global-error"
@@ -256,7 +272,7 @@ const GlobalSettings = () => {
                                     {t(errorKey)}
                                 </Typography>
                             )}
-                            {savedAt && !errorKey && (
+                                {savedAt && !errorKey && (
                                 <Typography role="status"
                                             aria-live="polite"
                                             style={{color: '#006600', display: 'block', marginTop: 12}}
@@ -265,7 +281,7 @@ const GlobalSettings = () => {
                                     {t('settings.saved')}
                                 </Typography>
                             )}
-                        </>
+                            </>
                     )}
                     </div>
                 </div>

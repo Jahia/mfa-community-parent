@@ -16,17 +16,22 @@ const SiteSettings = () => {
     const [savedAt, setSavedAt] = useState(null);
     const [errorKey, setErrorKey] = useState(null);
 
-    const {data, loading} = useQuery(SiteSettingsQuery, {
+    const {data, loading, error} = useQuery(SiteSettingsQuery, {
         variables: {siteKey},
         skip: !siteKey,
         fetchPolicy: 'network-only'
     });
+    // True only once the form has actually been populated from a successful response - a failed
+    // load must not let Save fall back to the constructor defaults (enabled: false) and silently
+    // turn MFA off for this site.
+    const [settingsLoaded, setSettingsLoaded] = useState(false);
 
     useEffect(() => {
         const s = data && data.mfaWebauthn && data.mfaWebauthn.siteSettings;
         if (s) {
             setEnabled(Boolean(s.enabled));
             setGroups((s.enabledGroups || []).join(', '));
+            setSettingsLoaded(true);
         }
     }, [data]);
 
@@ -66,7 +71,7 @@ const SiteSettings = () => {
         <Button key="save"
                 size="big"
                 color="accent"
-                isDisabled={saving || loading}
+                isDisabled={saving || loading || !settingsLoaded || Boolean(error)}
                 data-testid="webauthn-site-settings-save-btn"
                 label={saving ? t('siteSettings.saving') : t('siteSettings.save')}
                 onClick={save}/>
@@ -82,9 +87,18 @@ const SiteSettings = () => {
             )}
             content={(
                 <div style={{padding: '24px', maxWidth: 760}}>
-                    {loading ? <Loader/> : (
+                    <style>{'.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}'}</style>
+                    {loading ? <Loader/> : null}
+                    {!loading && error && (
+                        <Typography role="alert"
+                                    style={{color: '#a00000', display: 'block'}}
+                                    data-testid="webauthn-site-settings-load-error"
+                        >
+                            {t('siteSettings.errors.loadFailed')}
+                        </Typography>
+                    )}
+                    {!loading && !error && (
                         <>
-                            <style>{'.mfa-admin-input:focus-visible{outline:2px solid #00538b;outline-offset:2px;}'}</style>
                             <Typography style={{marginBottom: 24, display: 'block'}}>
                                 {t('siteSettings.description')}
                             </Typography>

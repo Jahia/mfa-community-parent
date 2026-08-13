@@ -35,6 +35,20 @@
              Only the per-factor structural boilerplate is excluded from CPD; every other rule (bugs,
              vulnerabilities, security hotspots, code smells) still applies to these files. -->
         <sonar.cpd.exclusions>totp/**/gql/**,webauthn/**/gql/**,**/*FactorProvider.java</sonar.cpd.exclusions>
+
+        <!-- JaCoCo XML reports for the three Java (OSGi bundle) modules, aggregated here for a
+             root-launched SonarQube scan (login-ui is packaging=pom / TypeScript-only, no JaCoCo
+             report). Note: extensions/totp/webauthn/login-ui each declare jahia-modules - not this
+             aggregator - as their Maven <parent>, so this root pom only drives the reactor build
+             order/module list; it does not propagate <build> plugin config to them (Sonar's
+             multi-module project hierarchy, unlike Maven's own inheritance, is based on this
+             <modules> list, so the property below still applies). The actual jacoco-maven-plugin
+             executions and the matching surefire argLine live in each module's own pom.xml. -->
+        <sonar.coverage.jacoco.xmlReportPaths>
+            extensions/target/site/jacoco/jacoco.xml,
+            totp/target/site/jacoco/jacoco.xml,
+            webauthn/target/site/jacoco/jacoco.xml
+        </sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <modules>
