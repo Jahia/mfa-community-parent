@@ -20,6 +20,16 @@ on:
   push:
   pull_request:
 
+# Least privilege for GITHUB_TOKEN. Without this block the token inherits the repository
+# default, which is often read/write on every scope - far more than a build needs, and a
+# standing risk if any build step (or a dependency it pulls in) is ever compromised.
+# `contents: read` is all this workflow requires: checkout reads the repo, and
+# actions/upload-artifact talks to the artifact service rather than the REST API, so it
+# needs no additional scope. Anything added here that writes back to the repository (a
+# comment, a tag, a release) must widen this deliberately rather than by inheritance.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build, lint, test, coverage
