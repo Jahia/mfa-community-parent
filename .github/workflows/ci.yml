@@ -35,7 +35,7 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Build (mvn install: compiles, runs yarn lint + webpack build, unit tests, JaCoCo)
+      - name: "Build: compile, yarn lint, webpack, unit tests, JaCoCo"
         run: mvn -B clean install
 
       - name: Upload surefire test reports
