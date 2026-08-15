@@ -55,7 +55,7 @@
     "@jahia/eslint-config": "2.1.0",
     "@jahia/webpack-config": "^1.1.0",
     "@testing-library/dom": "^10.4.0",
-    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
     "babel-loader": "^10.0.0",
