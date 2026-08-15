@@ -213,12 +213,10 @@
   resolved "https://registry.yarnpkg.com/@fontsource-variable/nunito-sans/-/nunito-sans-5.2.7.tgz#2a6fcc2b8c5fc1da5d1c9d27b593dbf4097306fa"
   integrity sha512-rflH5HeAoNjIkwftStzQvxqCJhIS+usMr/lfslWg/RCa499B5qxyjo+74R/QMM0geQt4AY1URlG7wAR1iq6KPQ==
 
-"@jahia/javascript-modules-library@^0.9.2":
-  version "0.9.2"
-  resolved "https://registry.yarnpkg.com/@jahia/javascript-modules-library/-/javascript-modules-library-0.9.2.tgz#ed661d0b3bf9ab21a974e45affa0359ecf65ee4d"
-  integrity sha512-aCc3ErY2+26vK5272+MXHYhWYbTt0Ll+FprPKZ9xEGOY+Ui24jQ8jrHxxWPZ7vOGq4kXa3/kZxsJMYlLbVzkTg==
-  dependencies:
-    dotenv "^17.2.2"
+"@jahia/javascript-modules-library@^1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@jahia/javascript-modules-library/-/javascript-modules-library-1.2.0.tgz#63ca24d26523bafd89add3cd6ae593178f80473a"
+  integrity sha512-zv5iceguZXTycKURpyceW7JEAtVOk15adgh7e6XfPhqZw6uqDkK3cCbCLPjgtZVaUOsO1TUqxXznUVg9QwmZ/g==
 
 "@jahia/vite-plugin@^0.9.2":
   version "0.9.2"
@@ -691,11 +689,6 @@ dotenv@^16.4.2:
   version "16.6.1"
   resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-16.6.1.tgz#773f0e69527a8315c7285d5ee73c4459d20a8020"
   integrity sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==
-
-dotenv@^17.2.2:
-  version "17.4.2"
-  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.4.2.tgz#c07e54a746e11eba021dd9e1047ced5afdc1c034"
-  integrity sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==
 
 entities@^8.0.0:
   version "8.0.0"
