@@ -220,14 +220,15 @@
   dependencies:
     dotenv "^17.2.2"
 
-"@jahia/vite-plugin@^0.9.2":
-  version "0.9.2"
-  resolved "https://registry.yarnpkg.com/@jahia/vite-plugin/-/vite-plugin-0.9.2.tgz#2d990792b00c0b3396038c16e367d8e17fb02346"
-  integrity sha512-wN5NVGV0yJkPgcfUdz50rdM/uLs22FG9h3rdYDhXmDdDwwByWypumrw6TFJN8/7lFwMGAFqDuEFeNXceaVeTNA==
+"@jahia/vite-plugin@^1.2.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@jahia/vite-plugin/-/vite-plugin-1.2.0.tgz#f275dfe3b95e0723d26821920def825c9a5135cd"
+  integrity sha512-VNdIvQTip6F28fh7SxqhP+lEFLkBDgj4vRCnMBt9IOP+niUA4bF6X2gsKSUOxVuAtWDUmP8j+mzamX01v3/7Yg==
   dependencies:
-    "@rollup/pluginutils" "^5.2.0"
-    magic-string "^0.30.18"
-    tinyglobby "^0.2.14"
+    "@rollup/pluginutils" "^5.3.0"
+    dotenv "^17.2.3"
+    magic-string "^0.30.21"
+    tinyglobby "^0.2.15"
 
 "@jridgewell/sourcemap-codec@^1.5.5":
   version "1.5.5"
@@ -323,7 +324,7 @@
     "@parcel/watcher-win32-ia32" "2.5.6"
     "@parcel/watcher-win32-x64" "2.5.6"
 
-"@rollup/pluginutils@^5.2.0":
+"@rollup/pluginutils@^5.3.0":
   version "5.4.0"
   resolved "https://registry.yarnpkg.com/@rollup/pluginutils/-/pluginutils-5.4.0.tgz#ac23a29ced0247060a210815fca39c17de4d2f26"
   integrity sha512-MfPp06CjRLfXQ3wY0R8vJDYBy/MvVcc9OulEfR0B8Iv9ko+GCNaRZ+EpJYFl27LhKsZK0o420sYCRHCjfCgeUg==
@@ -692,7 +693,7 @@ dotenv@^16.4.2:
   resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-16.6.1.tgz#773f0e69527a8315c7285d5ee73c4459d20a8020"
   integrity sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==
 
-dotenv@^17.2.2:
+dotenv@^17.2.2, dotenv@^17.2.3:
   version "17.4.2"
   resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.4.2.tgz#c07e54a746e11eba021dd9e1047ced5afdc1c034"
   integrity sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==
@@ -942,7 +943,7 @@ lru-cache@^11.5.2:
   resolved "https://registry.yarnpkg.com/lru-cache/-/lru-cache-11.5.2.tgz#00e16665c90c620fba14a3c368732a976493f760"
   integrity sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==
 
-magic-string@^0.30.17, magic-string@^0.30.18:
+magic-string@^0.30.17, magic-string@^0.30.21:
   version "0.30.21"
   resolved "https://registry.yarnpkg.com/magic-string/-/magic-string-0.30.21.tgz#56763ec09a0fa8091df27879fd94d19078c00d91"
   integrity sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==
