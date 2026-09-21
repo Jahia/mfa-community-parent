@@ -38,4 +38,36 @@
     default.from: "noreply@smtp-server.localhost"
     default.recipient: "admin@smtp-server.localhost"
 
+# SEC-285. `loginGate.gateBasicAuth` defaults to TRUE in the module: while enforcement is armed,
+# every `Authorization: Basic` credential is refused with 403 on EVERY endpoint unless the client
+# IP is whitelisted. This suite cannot live with that default, and the reason is structural rather
+# than incidental: @jahia/cypress authenticates with Basic auth throughout - its apollo client, its
+# `cy.executeGroovy`, and the per-test log markers it POSTs to /modules/api/provisioning in global
+# before/beforeEach/afterEach hooks around EVERY test. The moment any spec arms enforcement, those
+# hooks answer 403 and the run collapses: the spec that armed it cannot even undo it, because its
+# own `after` hook authenticates the same way, so the poisoned state leaks into every spec that
+# follows.
+#
+# Opting out HERE rather than in a helper is deliberate. A helper only covers the specs that call
+# it, and enforcement is also armed through the module's OWN admin mutation
+# (`mfaExtensionsSaveConfiguration`, exercised by graphQL.extensions.adminConfig.cy.ts) - measured,
+# not assumed: gating it in `setGlobalEnforcement` alone still failed that spec. This baseline
+# survives those saves, because `MfaExtensionsConfigSupport.applyUpdate` mutates the existing
+# properties and preserves keys it does not manage (the key is deliberately absent from the admin
+# UI). It is also what a real deployment with un-migrated Basic-auth automation would do.
+#
+# The armed posture is NOT lost from the suite: http.basicAuthGate.cy.ts whitelists its own
+# container and drives this key per test, covering armed, opted-out, and absent-key alike.
+#
+# Applied as a karafCommand, NOT as `editConfiguration`. Measured, not assumed: this file runs
+# under a restricted provisioning context that refuses that operation outright -
+#   WARN [ProvisioningManagerImpl] - No permission to execute provisioning operation of type
+#   editConfiguration
+# - and it fails SILENTLY, with a 2xx response and no error in the provisioning output. (The
+# `org.jahia.modules.mail` block above is refused the same way, so it has never taken effect; mail
+# is configured by assets/setup-smtp-server.groovy instead, which is why the email specs still
+# pass. Left as-is here: fixing it is a separate change.) `config:property-set` is the form that
+# works in this context, as the security.profile line above already shows.
+- karafCommand: "config:property-set -p org.jahia.modules.mfa.extensions loginGate.gateBasicAuth false"
+
 - karafCommand: "log:log 'END - MFA test provisioning'"

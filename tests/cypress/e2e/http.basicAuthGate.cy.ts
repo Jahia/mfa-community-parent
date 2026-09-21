@@ -15,8 +15,8 @@
  *    back in. This is the SEC-285 regression guard.
  *  - OPTED OUT (`=false`): a Basic credential authenticates again while enforcement is active.
  *    That is an operator with an integration they cannot migrate to a personal API token yet —
- *    and it is what this very suite does (see setGlobalEnforcement in ./utils), because
- *    @jahia/cypress builds its apollo client and its per-test log markers with an
+ *    and it is what this very suite does at stack level (see `tests/assets/provisioning.yml`),
+ *    because @jahia/cypress builds its apollo client and its per-test log markers with an
  *    `Authorization: Basic` header.
  *
  * The unconditional /cms/login form-parameter block is NOT affected by this switch; the last
@@ -29,8 +29,8 @@
  * to /modules/api/provisioning), authenticated with Basic auth and carrying no headers of ours.
  * Leave the gate armed without whitelisting this container and those hooks answer 403, so every
  * test in the spec fails in its hooks no matter what it asserts. Note this spec cannot lean on the
- * suite-wide opt-out that setGlobalEnforcement applies — half of what it measures is the gate
- * ARMED — so it buys its survival with the whitelist instead.
+ * suite-wide opt-out applied in `tests/assets/provisioning.yml` — half of what it measures is
+ * the gate ARMED — so it buys its survival with the whitelist instead.
  *
  * So the whitelist covers the private ranges the Compose network lives in, and the spec drives the
  * gated/not-gated distinction from the OTHER side: a probe that must be refused presents a
