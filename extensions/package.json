@@ -1,6 +1,6 @@
 {
   "name": "@jahia/mfa-factors-extensions",
-  "version": "0.3.0",
+  "version": "0.4.0-SNAPSHOT",
   "description": "Shared MFA infrastructure — global configuration UI",
   "scripts": {
     "build": "yarn webpack",
