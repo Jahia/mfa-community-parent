@@ -75,13 +75,35 @@ export function editMfaExtensionsConfig(
  * provisioning API: which factors are enforced platform-wide and the grace window in days.
  * Pass an empty string to turn enforcement off. ALWAYS revert in after() — a leftover
  * enforcement policy would push every other spec's users through inline enrollment.
+ *
+ * ARMING ENFORCEMENT ALSO OPTS THIS RUNNER OUT OF THE BASIC-AUTH GATE, in the same atomic
+ * configuration write. Since SEC-285, `loginGate.gateBasicAuth` defaults to TRUE: while
+ * enforcement is armed, every `Authorization: Basic` credential is refused with 403 on every
+ * endpoint unless the client IP is whitelisted. This suite authenticates that way throughout —
+ * not only the helpers here, but @jahia/cypress's own global before/beforeEach/afterEach log
+ * markers, which POST to /modules/api/provisioning around EVERY test. Leave the gate at its
+ * default here and those hooks 403 the moment a spec arms enforcement, so every test fails in
+ * its hooks regardless of what it asserts.
+ *
+ * Whitelisting the runner instead would be the other way out, but it is not available to all
+ * callers: http.loginGate.cy.ts asserts on being refused from a NON-whitelisted address, so a
+ * blanket whitelist here would silently invalidate it. Writing both keys at once also avoids an
+ * ordering hazard — a separate call made after enforcement is armed would already be gated.
+ *
+ * http.basicAuthGate.cy.ts is the spec that covers the gate itself; it whitelists this container
+ * deliberately and drives the key per test, so it keeps full control after calling this.
  */
 export function setGlobalEnforcement(
     enforcedFactors: string,
     graceDays = 0,
     extraHeaders: Record<string, string> = {},
 ) {
-    editMfaExtensionsConfig({enforcedFactors, graceDays: String(graceDays)}, extraHeaders);
+    const properties: Record<string, string> = {enforcedFactors, graceDays: String(graceDays)};
+    if (enforcedFactors !== '') {
+        properties['loginGate.gateBasicAuth'] = 'false';
+    }
+
+    editMfaExtensionsConfig(properties, extraHeaders);
 }
 
 /**

@@ -1,33 +1,36 @@
 /**
- * HTTP-level coverage for the OPT-IN Basic-auth arm of the MFA login gate
+ * HTTP-level coverage for the Basic-auth arm of the MFA login gate
  * (MfaLoginGateAuthValve + loginGate.gateBasicAuth, in the mfa-factors-extensions bundle).
  *
  * Jahia's HttpBasicAuthValve authenticates a username/password taken from an
  * `Authorization: Basic` header and never consults MFA factors — so while enforcement is active
- * that header is a second-factor bypass exactly like /cms/login is. The gate can close it, but
- * that shape is NOT confined to one endpoint: it is what every script, CI job, integration and
- * WebDAV client sends, so closing it refuses the whole machine-facing surface at once — the
- * provisioning API that configures this module included. It is therefore opt-in
- * (`loginGate.gateBasicAuth`, default false), and this spec pins BOTH halves of that contract:
+ * that header is a second-factor bypass exactly like /cms/login is (SEC-285). The gate closes it
+ * BY DEFAULT. What the switch buys is an exit, not an entrance: that shape is NOT confined to one
+ * endpoint — it is what every script, CI job, integration and WebDAV client sends — so closing it
+ * refuses the whole machine-facing surface at once, the provisioning API that configures this
+ * module included. This spec pins BOTH halves of that contract:
  *
- *  - DEFAULT (not armed): a Basic credential still authenticates while enforcement is active.
- *    This is the regression guard. Making it always-on would 403 every integration on the
- *    platform the moment ONE site enforces a factor — including this suite's own GraphQL and
- *    provisioning calls, which authenticate with Basic auth (@jahia/cypress builds its apollo
- *    client with an `Authorization: Basic` header).
- *  - ARMED: the credential is refused with 403 before authentication, on any endpoint, and the
- *    IP whitelist remains the operator's way back in.
+ *  - DEFAULT (`loginGate.gateBasicAuth` absent or true): the credential is refused with 403
+ *    before authentication, on any endpoint, and the IP whitelist remains the operator's way
+ *    back in. This is the SEC-285 regression guard.
+ *  - OPTED OUT (`=false`): a Basic credential authenticates again while enforcement is active.
+ *    That is an operator with an integration they cannot migrate to a personal API token yet —
+ *    and it is what this very suite does (see setGlobalEnforcement in ./utils), because
+ *    @jahia/cypress builds its apollo client and its per-test log markers with an
+ *    `Authorization: Basic` header.
  *
  * The unconditional /cms/login form-parameter block is NOT affected by this switch; the last
  * case here pins that, and http.loginGate.cy.ts covers it in full.
  *
  * THE RUNNER MUST BE WHITELISTED FOR THE WHOLE SPEC. This is not a convenience — it is forced by
- * the harness, and it is the clearest demonstration of the blast radius the opt-in guards. Around
- * EVERY test, @jahia/cypress runs global before/beforeEach/afterEach hooks that write a marker into
- * the Jahia log (`jahiaLog.enableSpecsMarker` → `cy.executeGroovy` → a multipart POST to
- * /modules/api/provisioning), authenticated with Basic auth and carrying no headers of ours. Arm
- * the gate without whitelisting this container and those hooks answer 403, so every test in the
- * spec fails in its hooks no matter what it asserts.
+ * the harness, and it is the clearest demonstration of the blast radius the opt-out exists for.
+ * Around EVERY test, @jahia/cypress runs global before/beforeEach/afterEach hooks that write a
+ * marker into the Jahia log (`jahiaLog.enableSpecsMarker` → `cy.executeGroovy` → a multipart POST
+ * to /modules/api/provisioning), authenticated with Basic auth and carrying no headers of ours.
+ * Leave the gate armed without whitelisting this container and those hooks answer 403, so every
+ * test in the spec fails in its hooks no matter what it asserts. Note this spec cannot lean on the
+ * suite-wide opt-out that setGlobalEnforcement applies — half of what it measures is the gate
+ * ARMED — so it buys its survival with the whitelist instead.
  *
  * So the whitelist covers the private ranges the Compose network lives in, and the spec drives the
  * gated/not-gated distinction from the OTHER side: a probe that must be refused presents a
@@ -101,10 +104,12 @@ describe('Basic-auth arm of the MFA gate (loginGate.gateBasicAuth, HTTP)', () =>
         });
         cy.apolloClient({username: ROOT_USER, password: rootPassword()});
         setSiteTotpSettings(SITE_KEY, true);
-        // Whitelist this container BEFORE arming anything: @jahia/cypress's per-test log-marker
+        // Whitelist this container BEFORE arming enforcement: @jahia/cypress's per-test log-marker
         // hooks call the provisioning API with Basic auth, so an un-whitelisted runner cannot even
-        // get through its own beforeEach once the gate is armed. trustForwardedFor is what lets the
-        // probes below present a different client identity through X-Forwarded-For.
+        // get through its own beforeEach once the gate bites. Ordering is what makes this safe —
+        // the gate is inert while enforcedFactors is empty, so these writes still get through, and
+        // setGlobalEnforcement below is the first call made under a live gate. trustForwardedFor is
+        // what lets the probes below present a different client identity through X-Forwarded-For.
         editMfaExtensionsConfig({
             'loginGate.enabled': 'false',
             'loginGate.gateBasicAuth': 'false',
@@ -147,10 +152,11 @@ describe('Basic-auth arm of the MFA gate (loginGate.gateBasicAuth, HTTP)', () =>
     // Each case sets the switch it needs rather than inheriting it from the previous one: the
     // state lives on the server, and `retries` re-runs a single test, not the ones before it.
 
-    it('leaves a Basic credential alone by default, even with enrollment enforced', () => {
-        // THE REGRESSION GUARD. Enforcement is armed and TOTP is enabled on a site, so the gate is
-        // live — but gateBasicAuth is at its shipped default, so every non-interactive client
-        // (this suite included) keeps authenticating.
+    it('leaves a Basic credential alone once the operator opts out', () => {
+        // THE ESCAPE HATCH. Enforcement is armed and TOTP is enabled on a site, so the gate is live
+        // — but the operator set gateBasicAuth=false, so every non-interactive client (this suite
+        // included) keeps authenticating. This re-opens SEC-285 for that deployment by design; the
+        // module logs it at WARN on every reconfiguration.
         setBasicAuthGate(false);
         graphqlProbe({Authorization: basicAuth(ROOT_USER, rootPassword()), ...OUTSIDE_CLIENT})
             .then(response => {
@@ -159,13 +165,28 @@ describe('Basic-auth arm of the MFA gate (loginGate.gateBasicAuth, HTTP)', () =>
             });
     });
 
-    it('keeps the provisioning API reachable by default', () => {
-        // The endpoint that configures this very module. If the default ever flips, an operator who
-        // armed enforcement would lose the API needed to revert it.
+    it('keeps the provisioning API reachable once opted out', () => {
+        // The endpoint that configures this very module, and the reason the opt-out exists at all:
+        // an operator whose whitelist cannot match (behind a proxy, GHSA-4v3g-mcmj-83fp) needs SOME
+        // route back to the configuration, and this key is it.
         setBasicAuthGate(false);
         provisioningProbe({Authorization: basicAuth(ROOT_USER, rootPassword()), ...OUTSIDE_CLIENT})
             .then(response => {
-                expect(response.status, 'provisioning must stay reachable at the default').to.not.eq(403);
+                expect(response.status, 'provisioning must be reachable once opted out').to.not.eq(403);
+            });
+    });
+
+    it('refuses a Basic credential with 403 when the key is absent (SEC-285, the default)', () => {
+        // THE REGRESSION GUARD, and the one case that pins the SHIPPED POSTURE rather than an
+        // explicit setting: a configuration that does not mention gateBasicAuth at all must gate.
+        // An empty value is how the provisioning API expresses "no value here"; the module reads
+        // absent and blank identically, and both must land on the closed side — a gate that
+        // disarms itself because a key went missing is not a gate.
+        editMfaExtensionsConfig({'loginGate.gateBasicAuth': ''});
+        graphqlProbe({Authorization: basicAuth(ROOT_USER, rootPassword()), ...OUTSIDE_CLIENT})
+            .then(response => {
+                expect(response.status, 'an absent key must read as ON').to.eq(403);
+                expect(identityOf(response), 'the password must not have authenticated').to.not.eq(ROOT_USER);
             });
     });
 
@@ -179,8 +200,9 @@ describe('Basic-auth arm of the MFA gate (loginGate.gateBasicAuth, HTTP)', () =>
     });
 
     it('refuses it on the provisioning API too — the block is not endpoint-scoped', () => {
-        // The operational cost the opt-in exists for: arming the switch takes the configuration API
-        // down for Basic-auth callers as well, which is why the whitelist must be verified first.
+        // The operational cost the opt-out exists for: the gate takes the configuration API down
+        // for Basic-auth callers as well, which is why the whitelist must be verified BEFORE
+        // enforcement is armed.
         setBasicAuthGate(true);
         provisioningProbe({Authorization: basicAuth(ROOT_USER, rootPassword()), ...OUTSIDE_CLIENT})
             .then(response => {

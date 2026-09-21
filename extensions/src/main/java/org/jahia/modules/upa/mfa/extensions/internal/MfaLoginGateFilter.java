@@ -28,7 +28,8 @@ import java.util.List;
  * <p>
  * Scope note: this filter is bound to {@code /cms/login} by its URL patterns, whereas the valve runs
  * on every request in the authentication pipeline. That difference is why the valve's
- * {@code Authorization: Basic} coverage is opt-in ({@code loginGate.gateBasicAuth}) - see
+ * {@code Authorization: Basic} coverage carries an opt-OUT switch ({@code loginGate.gateBasicAuth},
+ * on by default) that this endpoint-bound block needs no equivalent of - see
  * {@link MfaLoginGateAuthValve}. Nothing in this filter reacts to that switch.
  * <p>
  * <b>Why this filter must not write to the response a second time.</b> Jahia's own

@@ -33,10 +33,14 @@ import static org.junit.Assert.assertTrue;
  *   <li>BLOCK a gated, non-whitelisted password login - NOT continue the pipeline, and write a
  *       redirect to the configured login page (or {@code 403} when none is distinct);</li>
  *   <li>continue the pipeline (defense to the servlet filter) when the decision service is absent;</li>
- *   <li>leave a password carried in the {@code Authorization} header ALONE unless the operator armed
- *       {@code loginGate.gateBasicAuth} - that shape reaches every endpoint, so it is opt-in;</li>
- *   <li>once armed, gate that header the same way, answering {@code 403} (a non-interactive caller
- *       has no login page to follow) and leaving a token scheme alone;</li>
+ *   <li>gate a password carried in the {@code Authorization} header the same way, answering
+ *       {@code 403} (a non-interactive caller has no login page to follow) and leaving a token
+ *       scheme alone;</li>
+ *   <li>leave that header shape ALONE when the operator opted out of it
+ *       ({@code loginGate.gateBasicAuth=false}) - the escape hatch for a deployment with an
+ *       unmigrated Basic-auth integration. What the DEFAULT reading of that key is (on, SEC-285)
+ *       belongs to {@link MfaLoginGateDecision} and is pinned in its own test: these cases drive a
+ *       stub, so they pin the valve's behaviour for each posture, not which one ships;</li>
  *   <li>register at the head of the pipeline, ahead of both valves that consume a password.</li>
  *   <li>mark the request as handled ({@link MfaLoginGateAuthValve#ATTR_HANDLED}) whenever it blocks
  *       - and only then - so {@link MfaLoginGateFilter} does not try to write a second terminal
@@ -121,15 +125,16 @@ public class MfaLoginGateAuthValveTest {
 
     @Test
     public void gatedHeaderCredential_continuesPipelineWhenTheBasicAuthGateIsNotArmed() throws Exception {
-        // THE DEFAULT POSTURE, and the reason the switch exists. The header shape reaches every
-        // endpoint - the provisioning API and GraphQL included - so with loginGate.gateBasicAuth
-        // unset a gated, non-whitelisted Basic credential must still reach the pipeline. Blocking it
-        // by default would refuse every integration platform-wide (and the API needed to revert)
-        // the moment ONE site enforces a factor.
+        // THE OPT-OUT, and the reason the switch exists at all. The header shape reaches every
+        // endpoint - the provisioning API and GraphQL included - so an operator who cannot yet move
+        // an integration to a personal API token sets loginGate.gateBasicAuth=false, and a gated,
+        // non-whitelisted Basic credential must then reach the pipeline again. It re-opens SEC-285
+        // for that deployment, which is why it is explicit, logged at WARN, and NOT the shipped
+        // default (MfaLoginGateDecisionTest pins that the default reading is ON).
         StubDecision decision = new StubDecision();
         decision.gated = true;
         decision.whitelisted = false;
-        decision.basicAuthGateEnabled = false; // shipped default
+        decision.basicAuthGateEnabled = false; // the operator's explicit opt-out
         decision.distinctLoginUrl = "/sites/mySite/login.html";
         Recorder recorder = new Recorder();
         valve(decision).invoke(authContext(basicAuthRequest(), recorder.response), recorder.context());

@@ -34,8 +34,8 @@ import java.util.regex.Pattern;
  *       authentication pipeline, which is the only place that can block a {@code /cms/login}
  *       <b>POST</b> before a session is established (the servlet filter runs too late for POST -
  *       see that class). The valve also covers a password carried in an {@code Authorization: Basic}
- *       header, but ONLY when the operator arms {@code loginGate.gateBasicAuth} - that shape reaches
- *       every endpoint, so it is opt-in;</li>
+ *       header, unless the operator disarms {@code loginGate.gateBasicAuth} - that shape reaches
+ *       every endpoint, so closing it is on by default but can be opted out of;</li>
  *   <li>{@link MfaLoginGateFilter} - the servlet filter that remains as defense-in-depth on
  *       {@code /cms/login}, mainly effective for GET requests with no credentials to authenticate.</li>
  * </ul>
@@ -107,10 +107,11 @@ import java.util.regex.Pattern;
  *       {@code X-Forwarded-For} header, default {@code false} (spoof-proof socket address; SEC-135).
  *       Only enable behind a reverse proxy that overwrites the header.</li>
  *   <li>{@code loginGate.gateBasicAuth} - whether the valve also gates a password presented in an
- *       {@code Authorization: Basic} header, default {@code false}. Unlike the {@code /cms/login}
- *       form shape this reaches EVERY endpoint (the provisioning API, GraphQL, the tools, WebDAV),
- *       so arming it refuses every Basic-auth integration platform-wide while enforcement is
- *       active. Opt-in for exactly that reason; see {@link #isBasicAuthGateEnabled()}.</li>
+ *       {@code Authorization: Basic} header, default {@code true} (SEC-285). Unlike the
+ *       {@code /cms/login} form shape this reaches EVERY endpoint (the provisioning API, GraphQL,
+ *       the tools, WebDAV), so it refuses every Basic-auth integration platform-wide while
+ *       enforcement is active - set it to {@code false} to opt out while migrating those callers to
+ *       personal API tokens; see {@link #isBasicAuthGateEnabled()}.</li>
  * </ul>
  * <p>
  * A provider that cannot answer (e.g. an unhealthy repository) throws, and the gate fails
@@ -159,12 +160,16 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
      */
     private final AtomicBoolean trustForwardedFor = new AtomicBoolean(false);
     /**
-     * Gate a password presented in an {@code Authorization: Basic} header. Default {@code false}:
-     * that shape is not confined to {@code /cms/login} - it is what every non-interactive client
-     * uses on EVERY endpoint - so arming it refuses the provisioning API, GraphQL, the tools and
-     * WebDAV platform-wide as soon as one site enforces a factor. Opt-in, like the hard gate.
+     * Gate a password presented in an {@code Authorization: Basic} header. Default {@code true}
+     * (SEC-285): that shape authenticates on a password alone exactly like the {@code /cms/login}
+     * form parameters, so leaving it open while a site enforces a factor is the same bypass, merely
+     * on a wider surface. That width is the cost, not a reason to leave it open - it is what every
+     * non-interactive client uses on EVERY endpoint, so this refuses Basic-auth callers to the
+     * provisioning API, GraphQL, the tools and WebDAV as soon as one site enforces a factor. Those
+     * callers move to a personal API token; an operator who cannot migrate one yet opts out - see
+     * {@link #isBasicAuthGateEnabled()}.
      */
-    private final AtomicBoolean gateBasicAuth = new AtomicBoolean(false);
+    private final AtomicBoolean gateBasicAuth = new AtomicBoolean(true);
     private final AtomicReference<List<String>> whitelist = new AtomicReference<>(Collections.emptyList());
     private final AtomicReference<EnforcingCache> enforcingCache = new AtomicReference<>();
 
@@ -242,7 +247,7 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
         boolean enabled = parseFlag(properties, CONFIG_GATE_ENABLED);
         List<String> entries = parseWhitelist(properties == null ? null : properties.get(CONFIG_GATE_WHITELIST));
         boolean trustXff = parseFlag(properties, CONFIG_TRUST_FORWARDED_FOR);
-        boolean basicAuth = parseFlag(properties, CONFIG_GATE_BASIC_AUTH);
+        boolean basicAuth = parseFlagDefaultingToTrue(properties, CONFIG_GATE_BASIC_AUTH);
         gateEnabled.set(enabled);
         whitelist.set(entries);
         trustForwardedFor.set(trustXff);
@@ -257,21 +262,30 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
                     CONFIG_TRUST_FORWARDED_FOR, CONFIG_TRUST_FORWARDED_FOR);
         }
         if (basicAuth) {
-            logger.warn("MFA gate: {} is TRUE - while a site enforces a factor, EVERY request carrying an "
-                    + "Authorization: Basic header is refused with 403, on every endpoint (provisioning API, "
-                    + "GraphQL, tools, WebDAV), not just /cms/login. Non-interactive clients must switch to a "
-                    + "personal API token. Keep a working way back in: behind a reverse proxy (or Tomcat's "
-                    + "RemoteIpValve) {} only matches when {} is also true, otherwise the whitelist fails "
-                    + "closed and the only way to revert this key is editing the .cfg file on disk.",
+            logger.info("MFA gate: {} is on (the default) - while a site enforces a factor, EVERY request "
+                    + "carrying an Authorization: Basic header is refused with 403, on every endpoint "
+                    + "(provisioning API, GraphQL, tools, WebDAV), not just /cms/login, because that header "
+                    + "authenticates on a password alone. Non-interactive clients must use a personal API "
+                    + "token. Keep a working way back in: behind a reverse proxy (or Tomcat's RemoteIpValve) "
+                    + "{} only matches when {} is also true, otherwise the whitelist fails closed and the "
+                    + "only way to change this key is editing the .cfg file on disk.",
                     CONFIG_GATE_BASIC_AUTH, CONFIG_GATE_WHITELIST, CONFIG_TRUST_FORWARDED_FOR);
+        } else {
+            logger.warn("MFA gate: {} is FALSE - a password presented in an Authorization: Basic header "
+                    + "authenticates WITHOUT a second factor, on every endpoint, even while enforcement is "
+                    + "armed (SEC-285). This is an explicit opt-out of an MFA control and is meant to be a "
+                    + "temporary one: migrate the integrations that need it to personal API tokens, then "
+                    + "remove the key from PID org.jahia.modules.mfa.extensions.", CONFIG_GATE_BASIC_AUTH);
         }
     }
 
     /**
      * Read a boolean key, defaulting to {@code false} when absent or unparseable - the safe default
-     * for every switch on this PID ({@code loginGate.enabled}, {@code loginGate.trustForwardedFor}
-     * (SEC-135), {@code loginGate.gateBasicAuth}): each of them WIDENS what the gate blocks or what
-     * it trusts, so "not configured" must never mean "on".
+     * for the switches on this PID that WIDEN what the gate trusts, or how hard it bites outside the
+     * bypass itself ({@code loginGate.enabled}, {@code loginGate.trustForwardedFor} (SEC-135)): for
+     * those, "not configured" must never mean "on".
+     *
+     * @see #parseFlagDefaultingToTrue(Map, String) for the one key whose safe default is the other way
      */
     private static boolean parseFlag(Map<String, Object> properties, String key) {
         if (properties == null) {
@@ -279,6 +293,30 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
         }
         Object raw = properties.get(key);
         return raw != null && Boolean.parseBoolean(String.valueOf(raw));
+    }
+
+    /**
+     * Read a boolean key, defaulting to {@code true} when absent or unparseable. Used for
+     * {@code loginGate.gateBasicAuth} alone, and the asymmetry with {@link #parseFlag} is the whole
+     * point: that key does not widen a trust boundary, it CLOSES an authentication bypass (SEC-285),
+     * so every reading the operator did not explicitly make must land on the closed side. A gate
+     * that disarms itself because a value was absent, blank or misspelled
+     * ({@code loginGate.gateBasicAuth=fasle}) is not a gate - and unlike a bad whitelist entry,
+     * nothing about the resulting posture is visible until someone exploits it.
+     * <p>
+     * Only a value that reads exactly as {@code false} (case-insensitively, trimmed) disarms it:
+     * lenient in the safe direction, strict in the unsafe one. Note this is NOT
+     * {@code !Boolean.parseBoolean(raw)}, which would answer "disarm" for every typo.
+     */
+    private static boolean parseFlagDefaultingToTrue(Map<String, Object> properties, String key) {
+        if (properties == null) {
+            return true;
+        }
+        Object raw = properties.get(key);
+        if (raw == null || StringUtils.isBlank(String.valueOf(raw))) {
+            return true;
+        }
+        return !"false".equalsIgnoreCase(String.valueOf(raw).trim());
     }
 
     /**
@@ -313,17 +351,24 @@ public class MfaLoginGateDecision implements MfaSiteConfigChangeListener {
 
     /**
      * Whether a password presented in an {@code Authorization: Basic} header is gated
-     * ({@code loginGate.gateBasicAuth}, default {@code false}).
+     * ({@code loginGate.gateBasicAuth}, default {@code true} - SEC-285).
      * <p>
-     * Left to the operator rather than always-on, unlike the {@code /cms/login} POST block. That
-     * block is bounded to one interactive endpoint whose blocked callers have a login page to
-     * follow; the header shape is bounded by nothing - it is the credential every script,
-     * integration and CI job uses, on every endpoint. Arming it with one site enforcing a factor
-     * therefore 403s the whole machine-facing surface at once, and the emergency door does not
-     * always answer: behind Tomcat's {@code RemoteIpValve} (shipped enabled on the Jahia EE image)
-     * the whitelist fails CLOSED with {@code trustForwardedFor=false} (GHSA-4v3g-mcmj-83fp), so an
-     * operator can arm this and lose the very API needed to disarm it. Opting in is what makes that
-     * a decision rather than a surprise.
+     * On by default because it is the same bypass as the {@code /cms/login} POST block: that header
+     * authenticates on a password alone and never consults a factor, so while enforcement is armed
+     * anyone holding a stolen password owns the account through {@code curl -u}. A control that has
+     * to be discovered and switched on protects only the deployments that read the release note.
+     * <p>
+     * It is nonetheless the one key here that CAN be turned off, which the other half of the fix -
+     * the {@code /cms/login} form block - cannot, and that asymmetry is deliberate. The form shape
+     * is bounded to one interactive endpoint whose blocked callers have a login page to follow; the
+     * header shape is bounded by nothing - it is the credential every script, integration and CI job
+     * uses, on every endpoint - so with one site enforcing a factor it 403s the whole machine-facing
+     * surface at once. The emergency door does not always answer either: behind Tomcat's
+     * {@code RemoteIpValve} (shipped enabled on the Jahia EE image) the whitelist fails CLOSED with
+     * {@code trustForwardedFor=false} (GHSA-4v3g-mcmj-83fp), so an operator with an unmigrated
+     * integration can end up unable to reach the API that would disarm it. The opt-out is that
+     * operator's route, and it is meant to be temporary: the destination is a personal API token,
+     * which {@code TokenAuthValve} authenticates ahead of this gate.
      */
     public boolean isBasicAuthGateEnabled() {
         return gateBasicAuth.get();
