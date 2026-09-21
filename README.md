@@ -70,7 +70,7 @@ Configuration → MFA Community* (server administrators) — or directly in the 
 | `loginGate.enabled` | `false` | Master switch for the `/cms/login` gate (see below). |
 | `loginGate.ipWhitelist` | _(empty)_ | Comma-separated IPv4/IPv6 addresses or CIDR blocks allowed through the gate (e.g. `203.0.113.7, 10.0.0.0/8, 2001:db8::/32`). |
 | `loginGate.trustForwardedFor` | `false` | Whether the whitelist match is taken from the **first `X-Forwarded-For` entry** instead of the raw socket peer address. Only enable behind a reverse proxy that **overwrites** (not merely appends to) the header — see the security note below. |
-| `loginGate.gateBasicAuth` | `false` | Whether the gate also refuses a password presented in an **`Authorization: Basic`** header. Closes the same bypass on the machine-facing surface, but applies to **every endpoint** — read [Gating `Authorization: Basic`](#gating-authorization-basic-optional) before enabling. |
+| `loginGate.gateBasicAuth` | `true` | Whether the gate also refuses a password presented in an **`Authorization: Basic`** header (SEC-285). Closes the same bypass on the machine-facing surface, and applies to **every endpoint** — read [Gating `Authorization: Basic`](#gating-authorization-basic) before you arm enforcement, and before you consider setting this to `false`. |
 
 ### Per-site configuration
 
@@ -348,7 +348,7 @@ explicitly opt-in. It is a real exposure nonetheless, so choose deliberately:
   reverse proxy for everyone but your admin/VPN range. Do not rely on `loginGate.*` for this;
   with `enforcedFactors` empty those keys are inert.
 
-#### Gating `Authorization: Basic` (optional)
+#### Gating `Authorization: Basic`
 
 `/cms/login` is not the only way a password authenticates without MFA. Jahia's
 `HttpBasicAuthValve` — enabled by default and sitting at the head of the `authPipeline` — takes a
@@ -356,19 +356,23 @@ username/password from an `Authorization: Basic` header and never consults MFA f
 while enforcement is active, `curl -u user:password https://…/modules/graphql` is the same
 second-factor bypass, reachable on every endpoint.
 
-`loginGate.gateBasicAuth=true` closes it: the valve refuses such a request with **403** before
+`loginGate.gateBasicAuth` closes it: the valve refuses such a request with **403** before
 authentication happens. It answers `403` and never a redirect — the caller is a non-interactive
 client with no login page to follow.
 
-**It is off by default, and that default is deliberate.** Unlike the form-parameter shape, this one
-is not tied to an endpoint — it is what *every* machine client sends. With it armed and **one** site
-enforcing a factor, all of the following start answering `403` platform-wide:
+**It is on by default** (since 0.3.0; it was opt-in in 0.2.0). A password is a single factor
+whichever shape it arrives in, so leaving this open while enforcement is armed is the same bypass
+the `/cms/login` block exists to close.
+
+**The cost is real, and it is why the key exists at all.** Unlike the form-parameter shape, this one
+is not tied to an endpoint — it is what *every* machine client sends. While **one** site enforces a
+factor, all of the following answer `403` platform-wide for Basic-auth callers:
 
 - `/modules/api/provisioning` (including the configuration of this module)
 - `/modules/graphql`, `/modules/tools/*`
 - WebDAV, CI jobs, monitoring probes, custom integrations
 
-Before enabling it:
+Before you arm enforcement (`enforcedFactors`), which is what makes this gate bite:
 
 1. **Migrate non-interactive callers to personal API tokens.** Jahia's `TokenAuthValve` is *not*
    gated — tokens carry their own policy. This is the supported path for scripts and integrations.
@@ -382,18 +386,34 @@ Before enabling it:
    example — `@jahia/cypress` writes a log marker through the provisioning API in a global
    `beforeEach`/`afterEach` around *every* test, with Basic auth, so an un-whitelisted runner fails
    in its hooks before a single assertion runs.
-3. Know the fallback: if the whitelist cannot match, the only way to revert the key is editing
+3. Know the fallback: if the whitelist cannot match, the only way to change the key is editing
    `<karaf.etc>/org.jahia.modules.mfa.extensions.cfg` on the server filesystem.
 
-The switch is hot-reloaded (`@Modified`), so reverting it takes effect without a restart. It is
+**Setting it to `false` re-opens the bypass.** That is a supported escape hatch — an operator with an
+integration they cannot migrate yet needs one, and the emergency whitelist is not reachable in every
+topology — but it should be temporary, and it is the only key on this PID that turns an MFA control
+*off*. Prefer whitelisting the integration's address. The module logs a `WARN` naming the key on
+every (re)configuration while it is `false`, so the posture cannot be forgotten silently.
+
+Only a value that reads as `false` disarms it: absent, blank or unparseable all read as **on**, so a
+typo cannot quietly disable the gate.
+
+The switch is hot-reloaded (`@Modified`), so changing it takes effect without a restart. It is
 intentionally **not** exposed in the *MFA Community* administration UI: a control that can remove
 your own API access should be a deliberate, file-or-provisioning-level change. The first blocked
-request after activation logs a `WARN` naming the switch and how to revert; subsequent ones are
+request after activation logs a `WARN` naming the switch and how to opt out; subsequent ones are
 `DEBUG`, so an unauthenticated caller cannot flood the log.
+
+> **Upgrading from 0.2.0.** The shipped `.cfg` carries the
+> `# default configuration - won't be overridden` marker, so Jahia's extender does **not** rewrite
+> your deployed `<karaf.etc>/org.jahia.modules.mfa.extensions.cfg`. An installation that already has
+> `loginGate.gateBasicAuth=false` in that file — which is what 0.2.0 shipped — **keeps it, and stays
+> exposed**. Upgrading the bundle is not enough: edit the deployed file and set the key to `true`,
+> or delete the line.
 
 Note this gate is user-agnostic: it runs before any identity exists, so it cannot honour the
 per-site policy *groups* that scope enforcement to particular users. A policy targeting one group on
-one site still refuses every Basic credential platform-wide once armed.
+one site still refuses every Basic credential platform-wide.
 
 Tunable security constants (`DRIFT_WINDOWS`, `TIME_STEP_SECONDS`, `DIGITS`, PBKDF2
 iterations, ...) live in `TotpService` and `BackupCodes`. To change them, fork and rebuild.

@@ -48,14 +48,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       moment a site enforces MFA. Narrowed to its exact trigger, this shape belongs to one
  *       interactive endpoint, and letting it through is the MFA bypass this component exists to
  *       close;</li>
- *   <li>the <b>{@code Authorization: Basic} header</b> is gated only when the operator sets
- *       {@code loginGate.gateBasicAuth=true} (default {@code false}; see
- *       {@link MfaLoginGateDecision#isBasicAuthGateEnabled()}). That shape belongs to no particular
- *       endpoint: it is what every script, integration, CI job and WebDAV client sends, so gating it
- *       refuses the whole machine-facing surface - the provisioning API included - the moment ONE
+ *   <li>the <b>{@code Authorization: Basic} header</b> is gated unless the operator sets
+ *       {@code loginGate.gateBasicAuth=false} (default {@code true} - SEC-285; see
+ *       {@link MfaLoginGateDecision#isBasicAuthGateEnabled()}). It is a password like any other, and
+ *       a password alone is what enforcement exists to refuse. The reason it gets a switch at all,
+ *       where the form shape gets none, is blast radius: that shape belongs to no particular
+ *       endpoint - it is what every script, integration, CI job and WebDAV client sends - so gating
+ *       it refuses the whole machine-facing surface, the provisioning API included, the moment ONE
  *       site enforces a factor. Since the IP whitelist fails closed behind a reverse proxy
- *       (GHSA-4v3g-mcmj-83fp), an always-on version of this could leave an operator with no HTTP
- *       route back to the setting that caused it. Opt-in makes that a deliberate posture.</li>
+ *       (GHSA-4v3g-mcmj-83fp), an operator can be left with no HTTP route back to the setting that
+ *       caused it; the switch is that operator's route, while they migrate the callers to personal
+ *       API tokens.</li>
  * </ul>
  * A blocked header credential is answered with {@code 403} rather than a redirect: the caller is a
  * non-interactive client, which has no login page to follow.

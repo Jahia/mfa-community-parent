@@ -342,57 +342,74 @@ public class MfaLoginGateDecisionTest {
         assertTrue(decision.isClientWhitelisted(requestWith("203.0.113.9", "198.51.100.23")));
     }
 
-    // --- Basic-auth gating opt-in (loginGate.gateBasicAuth) -----------------------------------
+    // --- Basic-auth gating (loginGate.gateBasicAuth) ------------------------------------------
     //
-    // Every switch on this PID widens what the gate blocks or what it trusts, so an absent or
-    // unparseable value must read as OFF. For gateBasicAuth specifically, defaulting to ON would
-    // mean an upgrade of this bundle silently starts 403ing every Basic-auth integration on a
-    // platform that already has enforcement armed - including /modules/api/provisioning, the API an
-    // operator would reach for to undo it.
+    // SEC-285. An Authorization: Basic password is a single factor, so while enforcement is armed
+    // it is a complete second-factor bypass on every endpoint - exactly the flaw the /cms/login
+    // block closes for the form shape. It therefore defaults to ON, and the absent / unreadable
+    // readings must land on the same side: a gate that silently disarms itself because a value did
+    // not parse is not a gate. The key stays settable to false, because that is the operator's
+    // documented way back when arming it cut an integration they cannot yet migrate.
 
     @Test
-    public void basicAuthGate_isOffWhenTheKeyIsAbsent() {
+    public void basicAuthGate_isOnWhenTheKeyIsAbsent() {
         MfaLoginGateDecision decision = new MfaLoginGateDecision();
         decision.activate(new HashMap<>());
-        assertFalse("an absent loginGate.gateBasicAuth must read as OFF", decision.isBasicAuthGateEnabled());
-    }
-
-    @Test
-    public void basicAuthGate_isOffWithNullPropertiesOrAGarbageValue() {
-        MfaLoginGateDecision decision = new MfaLoginGateDecision();
-        decision.activate(null);
-        assertFalse("no properties at all must read as OFF", decision.isBasicAuthGateEnabled());
-
-        Map<String, Object> props = new HashMap<>();
-        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "yes-please");
-        decision.activate(props);
-        assertFalse("an unparseable value must read as OFF, never as ON",
+        assertTrue("an absent loginGate.gateBasicAuth must read as ON (SEC-285 fails secure)",
                 decision.isBasicAuthGateEnabled());
     }
 
     @Test
-    public void basicAuthGate_isOnOnlyWhenExplicitlySetTrue() {
+    public void basicAuthGate_isOnWithNullPropertiesOrAGarbageValue() {
         MfaLoginGateDecision decision = new MfaLoginGateDecision();
+        decision.activate(null);
+        assertTrue("no properties at all must read as ON", decision.isBasicAuthGateEnabled());
+
         Map<String, Object> props = new HashMap<>();
-        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "true");
+        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "yes-please");
         decision.activate(props);
-        assertTrue(decision.isBasicAuthGateEnabled());
+        assertTrue("an unparseable value must read as ON, never silently disarm the gate",
+                decision.isBasicAuthGateEnabled());
     }
 
     @Test
-    public void basicAuthGate_isHotReloadedBackToOff() {
-        // @Modified re-runs activate(): an operator reverting the key in the .cfg must take effect
-        // without a restart - this is the documented way back when the IP whitelist cannot match.
+    public void basicAuthGate_isOffOnlyWhenExplicitlySetFalse() {
         MfaLoginGateDecision decision = new MfaLoginGateDecision();
-        Map<String, Object> armed = new HashMap<>();
-        armed.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "true");
-        decision.activate(armed);
-        assertTrue(decision.isBasicAuthGateEnabled());
+        Map<String, Object> props = new HashMap<>();
+        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "false");
+        decision.activate(props);
+        assertFalse("an explicit false is the operator's opt-out and must be honoured",
+                decision.isBasicAuthGateEnabled());
 
-        Map<String, Object> reverted = new HashMap<>();
-        reverted.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "false");
-        decision.activate(reverted);
-        assertFalse("reverting the key must take effect live", decision.isBasicAuthGateEnabled());
+        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "FALSE");
+        decision.activate(props);
+        assertFalse("the opt-out is matched case-insensitively, like every other flag on this PID",
+                decision.isBasicAuthGateEnabled());
+    }
+
+    @Test
+    public void basicAuthGate_isHotReloadedBothWays() {
+        // @Modified re-runs activate(): an operator disarming the key in the .cfg must take effect
+        // without a restart - this is the documented way out when an integration breaks - and
+        // re-arming it must not need one either.
+        MfaLoginGateDecision decision = new MfaLoginGateDecision();
+        Map<String, Object> disarmed = new HashMap<>();
+        disarmed.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "false");
+        decision.activate(disarmed);
+        assertFalse(decision.isBasicAuthGateEnabled());
+
+        Map<String, Object> rearmed = new HashMap<>();
+        rearmed.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "true");
+        decision.activate(rearmed);
+        assertTrue("re-arming the key must take effect live", decision.isBasicAuthGateEnabled());
+
+        // Dropping the key entirely returns to the secure default rather than keeping the last
+        // value: a configuration that no longer mentions the key must not stay disarmed.
+        decision.activate(disarmed);
+        assertFalse(decision.isBasicAuthGateEnabled());
+        decision.activate(new HashMap<>());
+        assertTrue("removing the key must fall back to ON, not to the previous reading",
+                decision.isBasicAuthGateEnabled());
     }
 
     @Test
@@ -401,7 +418,14 @@ public class MfaLoginGateDecisionTest {
         // handling on /cms/login, gateBasicAuth decides whether the valve covers the header shape.
         MfaLoginGateDecision decision = new MfaLoginGateDecision();
         Map<String, Object> props = new HashMap<>();
+        props.put(MfaLoginGateDecision.CONFIG_GATE_ENABLED, "false");
+        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "true");
+        decision.activate(props);
+        assertFalse(decision.isHardGateEnabled());
+        assertTrue("the Basic-auth gate must not depend on the hard gate", decision.isBasicAuthGateEnabled());
+
         props.put(MfaLoginGateDecision.CONFIG_GATE_ENABLED, "true");
+        props.put(MfaLoginGateDecision.CONFIG_GATE_BASIC_AUTH, "false");
         decision.activate(props);
         assertTrue(decision.isHardGateEnabled());
         assertFalse("the hard gate must not imply the Basic-auth gate", decision.isBasicAuthGateEnabled());

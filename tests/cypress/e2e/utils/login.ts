@@ -75,6 +75,12 @@ export function editMfaExtensionsConfig(
  * provisioning API: which factors are enforced platform-wide and the grace window in days.
  * Pass an empty string to turn enforcement off. ALWAYS revert in after() — a leftover
  * enforcement policy would push every other spec's users through inline enrollment.
+ *
+ * Arming enforcement is also what makes the Basic-auth gate bite (SEC-285,
+ * `loginGate.gateBasicAuth`, which defaults to ON). This suite authenticates with Basic auth
+ * throughout, so it opts out ONCE at stack level in `tests/assets/provisioning.yml` rather than
+ * here — see that file for why a helper-level opt-out is not enough (enforcement is also armed
+ * through the module's own admin mutation, which never calls this function).
  */
 export function setGlobalEnforcement(
     enforcedFactors: string,
