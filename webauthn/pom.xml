@@ -118,6 +118,13 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
             <version>2.19.0</version>
         </dependency>
+        <!-- Raise the embedded Guava (webauthn-server-core pulls 33.0.0-jre) past the advisory
+             fixed in 33.7.2-jre. -->
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>33.7.2-jre</version>
+        </dependency>
         <!-- yubico parses the CBOR attestation object via a Jackson CBOR mapper. Jahia ships this
              jar on the webapp classpath but does not export the package to OSGi, so embed it. -->
         <dependency>
