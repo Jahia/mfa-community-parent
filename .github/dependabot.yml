@@ -3,6 +3,7 @@
 # - npm:   the JS modules (each ships its own package.json: the three factor webapp bundles and the
 #          login-ui JS-SDK module) plus the Cypress test harness. The "npm" ecosystem also covers
 #          the yarn lockfiles these modules use.
+# - github-actions: the CI workflow actions.
 # See https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 version: 2
 updates:
@@ -11,6 +12,10 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    groups:
+      maven-dependencies:
+        patterns:
+          - "*"
     # These are Jahia-8.2.3-platform-provided (scope=provided) or deliberately pinned to Jahia's
     # Jackson line; their versions MUST track the Jahia runtime, not upstream latest. Bumping the
     # compile version risks the bnd-generated OSGi Import-Package range demanding a version Jahia
@@ -18,6 +23,8 @@ updates:
     # genuinely-embedded, non-Jahia libraries (e.g. com.yubico:webauthn-server-core).
     ignore:
       - dependency-name: "org.jahia.modules:*"
+      - dependency-name: "org.jahia.*"
+      - dependency-name: "org.osgi:*"
       - dependency-name: "com.fasterxml.jackson*"
       - dependency-name: "com.graphql-java:graphql-java"
       - dependency-name: "io.github.graphql-java:graphql-java-annotations"
@@ -31,7 +38,79 @@ updates:
       - "/totp"
       - "/webauthn"
       - "/login-ui"
-      - "/tests"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+    # Module Federation shared libraries (provided by the Jahia UI at runtime), the Jahia JS-SDK
+    # toolchain, and toolchain majors that need a coordinated migration.
+    ignore:
+      - dependency-name: "@jahia/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@apollo/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-i18next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "i18next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "graphql"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "graphql-tag"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "redux"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-redux"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@babel/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/tests"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-tests-dependencies:
+        patterns:
+          - "*"
+    # The Cypress harness runs in cypress/included:13.6.1; majors here can only be validated by
+    # the e2e harness.
+    ignore:
+      - dependency-name: "cypress"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@jahia/cypress"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@apollo/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "graphql"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "graphql-tag"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "mocha"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@babel/*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

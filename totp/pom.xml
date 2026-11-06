@@ -110,7 +110,7 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>33.6.0-jre</version>
+            <version>33.7.2-jre</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -231,7 +231,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.13</version>
+                <version>0.8.16</version>
                 <executions>
                     <execution>
                         <id>jacoco-prepare-agent</id>
