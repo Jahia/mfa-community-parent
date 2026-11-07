@@ -53,19 +53,15 @@ provision() {
   # $1 = artifacts dir holding the .tgz JS modules for this phase
   local jars_dir="$1"
 
-  echo "== Provisioning extra setup (smtp settings) =="
-  curl -sf -u "root:${SUPER_USER_PASSWORD}" \
-    -F "script=@assets/setup-smtp-server.groovy" \
-    "http://localhost:${HOST_HTTP_PORT}/modules/tools/groovyConsole.jsp" >/dev/null 2>&1 || true
-
   # api-security defaults to security.profile=default, which blocks GraphQL API calls from
   # non-privileged (non-root) users. The MFA admin-gate NEGATIVE specs authenticate as a regular
   # (non site-admin) user and must reach the resolvers so the module's OWN requireSiteAdmin gate
   # is what denies them. security.profile=open (disposable test setup) lets those calls through;
   # the MFA gates still deny as designed.
-  echo "== Provisioning security profile (open) via the provisioning API =="
+  echo "== Provisioning security profile (open), Basic-auth gate opt-out and mail via the provisioning API =="
   curl -s -u "root:${SUPER_USER_PASSWORD}" \
     -F "script=@assets/provisioning.yml;type=text/yaml" \
+    -F "file=@assets/setup-smtp-server.groovy" \
     "http://localhost:${HOST_HTTP_PORT}/modules/api/provisioning"
   echo
 

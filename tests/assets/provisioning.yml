@@ -35,8 +35,7 @@
 #   editConfiguration
 # - and it fails SILENTLY, with a 2xx response and no error in the provisioning output. (The
 # `org.jahia.modules.mail` block below is refused the same way, so it has never taken effect; mail
-# is configured by assets/setup-smtp-server.groovy instead, which is why the email specs still
-# pass. Left as-is here: fixing it is a separate change.) `config:property-set` is the form that
+# is configured by the setup-smtp-server.groovy script below instead.) `config:property-set` is the form that
 # works in this context, as the security.profile line above already shows.
 #
 # Kept BEFORE the installBundle below. Measured on Jahia 8.2.3.7: once that installBundle has run,
@@ -46,6 +45,10 @@
 # - so placed after it, this opt-out never applied, the gate stayed armed, and the first spec that
 # enforced a factor 403'd the hooks of every spec after it.
 - karafCommand: "config:property-set -p org.jahia.modules.mfa.extensions loginGate.gateBasicAuth false"
+
+# Mail, configured for every Jahia version by the script (core MailService up to 8.2.3.x, the
+# org.jahia.modules.mail PID from 8.2.4.0). Before installBundle, for the same reason as above.
+- executeScript: "setup-smtp-server.groovy"
 
 # Mail, for the specs that read a one-time code out of Mailpit (ui.emailFactor) or assert that a
 # reset request was notified (ui.resetRequest).
