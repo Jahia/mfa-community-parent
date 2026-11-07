@@ -86,10 +86,17 @@ updates:
       npm-tests-dependencies:
         patterns:
           - "*"
-    # The Cypress harness runs in cypress/included:13.6.1; majors here can only be validated by
-    # the e2e harness.
+    # The Cypress harness runs in cypress/included:<the cypress version in package.json> (see
+    # tests/set-env.sh); majors here can only be validated by the e2e harness.
     ignore:
       - dependency-name: "cypress"
+        update-types: ["version-update:semver-major"]
+      # These majors require Cypress >= 15.10 (cypress-mailpit 2 calls Cypress.expose; both declare
+      # the peer). With cypress held on 13.x above, they crash every spec at load time
+      # ("Cypress.expose is not a function", 2026-11 e2e run of #150). Move them with Cypress 15.
+      - dependency-name: "cypress-mailpit"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@cypress/code-coverage"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@jahia/cypress"
         update-types: ["version-update:semver-major"]
