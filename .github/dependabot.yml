@@ -8,7 +8,15 @@
 version: 2
 updates:
   - package-ecosystem: "maven"
-    directory: "/"
+    # The module directories are listed explicitly so that the ignore rules below also apply to
+    # the per-directory security updates (an alert on webauthn/pom.xml is only matched by an entry
+    # that covers /webauthn; with "/" alone Dependabot opened commons-lang3/jackson PRs anyway).
+    directories:
+      - "/"
+      - "/extensions"
+      - "/totp"
+      - "/webauthn"
+      - "/login-ui"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
@@ -76,6 +84,14 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # login-ui builds its SSR bundle with @jahia/vite-plugin 0.9 on Vite 7; Vite 8 (Rolldown)
+      # changes the bundler and can only be validated by the e2e harness.
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      # @jahia/eslint-config 2.2.0 makes Yarn 1 abort the install ("could not find a copy of
+      # eslint to link"): its new nested eslint 8 plugin tree clashes with the root eslint 9.
+      - dependency-name: "@jahia/eslint-config"
+        versions: ["2.2.0"]
 
   - package-ecosystem: "npm"
     directory: "/tests"
