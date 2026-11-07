@@ -7,10 +7,14 @@ instance booted from a Docker image with the UPA bundles and the MFA modules pre
 ## Prerequisites
 
 1. Docker (with `docker compose`) installed and running.
-2. The UPA module has been built locally (at the version the reactor pins — `0.2.0`, checked out
-   at `../../user-password-authentication`):
+2. The UPA module has been built locally at the version the bundles pin (`<upa.version>` in the
+   `extensions`, `totp` and `webauthn` poms, currently `0.2.0`, git tag `0_2_0`). `ci.build.sh` stages only that version and
+   stops if it is missing. It reads UPA from `../../user-password-authentication`; set `UPA_DIR`
+   to use another checkout, for example a worktree of the tag:
    ```
-   cd ../../user-password-authentication && mvn -DskipTests package
+   git -C ../../user-password-authentication worktree add ../upa-0_2_0 0_2_0
+   cd ../../upa-0_2_0 && mvn -DskipTests package
+   UPA_DIR=../../upa-0_2_0 ./ci.build.sh
    ```
    Produces:
    - `user-password-authentication/api/target/user-password-authentication-api-*.jar`
