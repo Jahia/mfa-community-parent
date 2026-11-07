@@ -122,6 +122,12 @@ for f in "${ARTIFACTS_DIR}"/*; do
 done
 echo "  staged (totp-only): $(ls -1 "${TOTP_ONLY_DIR}" | tr '\n' ' ')"
 
+# docker-compose bind-mounts these folders read-only into the jahia container, which reads them as
+# its own user. On a host whose umask removes access for "other" (e.g. 0027) they are staged 750/640:
+# Jahia cannot read /var/jahia/modules, installs none of the jars (UPA api included) and every spec
+# fails on undefined GraphQL fields. Make the staged artifacts world-readable.
+chmod -R o+rX "${ARTIFACTS_DIR}" "${TOTP_ONLY_DIR}"
+
 echo "== Building Cypress test image =="
 # We do NOT build a custom image; we use the official cypress/included one. Pull it now
 # so docker-compose up doesn't wait on first run.
