@@ -88,10 +88,10 @@ updates:
       # changes the bundler and can only be validated by the e2e harness.
       - dependency-name: "vite"
         update-types: ["version-update:semver-major"]
-      # @jahia/eslint-config 2.2.0 makes Yarn 1 abort the install ("could not find a copy of
-      # eslint to link"): its new nested eslint 8 plugin tree clashes with the root eslint 9.
+      # @jahia/eslint-config 2.1.1+ (2.1.2, 2.2.0) makes Yarn 1 abort the install ("could not find
+      # a copy of eslint to link"): its nested eslint 8 plugin tree clashes with the root eslint 9.
       - dependency-name: "@jahia/eslint-config"
-        versions: ["2.2.0"]
+        versions: [">= 2.1.1"]
 
   - package-ecosystem: "npm"
     directory: "/tests"
