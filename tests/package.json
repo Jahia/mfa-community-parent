@@ -23,7 +23,7 @@
     "cypress-terminal-report": "^7.4.0",
     "cypress-wait-until": "^3.0.1",
     "dotenv": "^18.0.9",
-    "graphql": "^16.14.2",
+    "graphql": "^16.15.0",
     "graphql-tag": "^2.12.6",
     "mocha": "^10.0.0",
     "mocha-junit-reporter": "^2.2.0",
@@ -50,6 +50,8 @@
     "fast-uri": "^3.1.6",
     "serialize-javascript": "^7.1.3",
     "uuid": "^11.1.1",
-    "validator": "^13.15.22"
+    "validator": "^13.15.22",
+    "mochawesome-merge/glob": "^14.0.3",
+    "**/mochawesome-merge/glob": "^14.0.3"
   }
 }
