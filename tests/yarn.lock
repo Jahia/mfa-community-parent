@@ -1864,10 +1864,10 @@ diff@^5.2.0:
   resolved "https://registry.yarnpkg.com/diff/-/diff-5.2.2.tgz#0a4742797281d09cfa699b79ea32d27723623bad"
   integrity sha512-vtcDfH3TOjP8UekytvnHH1o1P4FcUdt4eQ1Y+Abap1tk/OB2MWQvcwS2ClCd1zuIhc3JKOx6p3kod8Vfys3E+A==
 
-dotenv@^18.0.9:
-  version "18.0.9"
-  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-18.0.9.tgz#5c565760ce7e6fb69f9477ebcd1a3b64c766f9c8"
-  integrity sha512-3fVOW4cB02R066PUSwn8O4TJyz9NckQl7F81blIbaq9jKBm2tSmOKky7ZHIXzGvkVPXCSn6jkpziBPZdGFs8Tw==
+dotenv@^18.0.10:
+  version "18.0.10"
+  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-18.0.10.tgz#4171e67ba539a3d1513d7cbc51b8124e60714d28"
+  integrity sha512-89FAA1xchzK2mxVWdr5F/0rldwiueXs6zJM86rO66EzekR1iBdiXRthyG+m5GvkJaFH3C2LESzamTkgndmLT2A==
 
 dunder-proto@^1.0.1:
   version "1.0.1"
